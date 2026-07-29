@@ -113,6 +113,11 @@ function createWindow() {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
+      // Connectors embeds a real Chromium view so job sites can be logged into
+      // inside the app. Sessions live in a persistent partition, so cookies
+      // survive restarts exactly like a browser profile — and the app never sees
+      // a password, because you type it into that view yourself.
+      webviewTag: true,
     },
   });
 
@@ -133,6 +138,50 @@ function createWindow() {
 
 ipcMain.handle("open-external", (_e, url) => {
   if (typeof url === "string" && /^https?:\/\//i.test(url)) shell.openExternal(url);
+});
+
+// ---------- Connectors: browser sessions for job sites ----------
+
+const BROWSER_PARTITION = "persist:mapply-jobsites";
+
+function jobSession() {
+  const { session } = require("electron");
+  return session.fromPartition(BROWSER_PARTITION);
+}
+
+/** Connected = this site has left cookies behind, which only happens once you
+ *  have actually signed in. We never read cookie VALUES, only that they exist. */
+ipcMain.handle("connector-status", async (_e, domains) => {
+  const out = {};
+  if (!Array.isArray(domains)) return out;
+  for (const d of domains) {
+    try {
+      const cookies = await jobSession().cookies.get({ domain: d });
+      // a logged-out visit still drops consent/analytics cookies, so require a
+      // session-ish cookie rather than merely "some cookie exists"
+      const signedIn = cookies.some(
+        (c) => /sess|auth|token|login|_id$|jsessionid/i.test(c.name) && c.value
+      );
+      out[d] = { cookies: cookies.length, connected: signedIn };
+    } catch {
+      out[d] = { cookies: 0, connected: false };
+    }
+  }
+  return out;
+});
+
+ipcMain.handle("connector-disconnect", async (_e, domain) => {
+  if (typeof domain !== "string" || !domain) return { ok: false };
+  try {
+    const cookies = await jobSession().cookies.get({ domain });
+    for (const c of cookies) {
+      const url = `${c.secure ? "https" : "http"}://${c.domain.replace(/^\./, "")}${c.path}`;
+      await jobSession().cookies.remove(url, c.name).catch(() => {});
+    }
+    return { ok: true, removed: cookies.length };
+  } catch (e) {
+    return { ok: false, error: String(e) };
+  }
 });
 ipcMain.handle("app-quit", () => app.quit());
 ipcMain.handle("toggle-fullscreen", () => {

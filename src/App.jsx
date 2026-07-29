@@ -10,6 +10,7 @@ import Jobs from "./pages/Jobs.jsx";
 import JobDetail from "./pages/JobDetail.jsx";
 import Tracker from "./pages/Tracker.jsx";
 import ProfilePage from "./pages/ProfilePage.jsx";
+import Connectors from "./pages/Connectors.jsx";
 import Settings from "./pages/Settings.jsx";
 import { useTheme } from "./lib/theme.js";
 
@@ -57,6 +58,7 @@ export default function App() {
             <Route path="/jobs/:jid" element={<JobDetail profile={profile} />} />
             <Route path="/tracker" element={<Tracker profile={profile} />} />
             <Route path="/profile" element={<ProfilePage profile={profile} />} />
+            <Route path="/connectors" element={<Connectors profile={profile} />} />
             <Route path="/settings" element={<Settings profile={profile} />} />
           </Route>
         ) : null}

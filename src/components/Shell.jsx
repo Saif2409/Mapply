@@ -6,6 +6,7 @@ const NAV = [
   { to: "/jobs", label: "Jobs", icon: "▤" },
   { to: "/tracker", label: "Tracker", icon: "▦" },
   { to: "/profile", label: "Profile", icon: "◉" },
+  { to: "/connectors", label: "Connectors", icon: "⚯" },
   { to: "/settings", label: "Settings", icon: "⚙" },
 ];
 

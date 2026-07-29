@@ -5,6 +5,7 @@ import { api, openExternal } from "../lib/api.js";
 import TailorModal from "../components/TailorModal.jsx";
 import ClaudeHandoff from "../components/ClaudeHandoff.jsx";
 import { useJobsSync } from "../lib/useJobsSync.js";
+import SiteBrowser from "../components/SiteBrowser.jsx";
 
 const SOURCE_LABELS = {
   indeed: "Indeed", linkedin: "LinkedIn", bayt: "Bayt", glassdoor: "Glassdoor",
@@ -169,7 +170,7 @@ function ScoreDetail({ score }) {
 const JobRow = memo(function JobRow({
   job: j, selectMode, isSelected, isExpanded, manager,
   onToggleSelect, onToggleExpand, onTailor, onApply,
-  onFindManager, onManagerHandoff, onOpenDetail,
+  onFindManager, onManagerHandoff, onOpenDetail, onBrowse,
 }) {
   return (
     <div
@@ -196,6 +197,7 @@ const JobRow = memo(function JobRow({
           onClick={() =>
             selectMode ? onToggleSelect(j.id) : onToggleExpand(isExpanded ? null : j.id)
           }
+          data-job-title={j.title}
         >
           <div className="flex items-center gap-2">
             <span className="font-semibold truncate">{j.title}</span>
@@ -247,9 +249,10 @@ const JobRow = memo(function JobRow({
             <div className="flex items-center gap-4 mt-3">
               <button
                 className="text-xs text-royal-light hover:underline"
-                onClick={() => openExternal(j.url)}
+                title="Opens inside Mapply, signed in to the site"
+                onClick={() => onBrowse(j)}
               >
-                View original posting ↗
+                View original posting
               </button>
               <button
                 className="text-xs text-royal-light hover:underline"
@@ -325,6 +328,7 @@ export default function Jobs({ profile }) {
   const [selected, setSelected] = useState(() => new Set());
   const [lastRemoved, setLastRemoved] = useState(null);
   const [limit, setLimit] = useState(PAGE);
+  const [browseTarget, setBrowseTarget] = useState(null);
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
   const pollRef = useRef(null);
@@ -435,11 +439,14 @@ export default function Jobs({ profile }) {
     }
   }, [profile.id, lastRemoved, loadJobs]);
 
-  // Applying moves a job out of the open pool: it leaves this list and lives in
-  // the Tracker, so the next top 50 is a different set of jobs.
+  // Open a posting in the in-app browser, where the site is already signed in.
+  const browseJob = useCallback((job) => setBrowseTarget(job), []);
+
+  // Applying opens the posting in the in-app browser and moves the job out of the
+  // open pool into the Tracker, so the next top 50 is a different set of jobs.
   const applyToJob = useCallback(
     async (job) => {
-      openExternal(job.url);
+      setBrowseTarget(job);
       try {
         await api.patchJob(profile.id, job.id, { status: "applied" });
         loadJobs();
@@ -515,6 +522,13 @@ export default function Jobs({ profile }) {
 
   return (
     <div className="p-10 max-w-6xl mx-auto">
+      {browseTarget && (
+        <SiteBrowser
+          url={browseTarget.url}
+          title={`${browseTarget.title} at ${browseTarget.company}`}
+          onClose={() => setBrowseTarget(null)}
+        />
+      )}
       {tailorJob && (
         <TailorModal job={tailorJob} profile={profile} onClose={() => setTailorJob(null)} />
       )}
@@ -713,6 +727,7 @@ export default function Jobs({ profile }) {
                   onFindManager={findManager}
                   onManagerHandoff={setManagerHandoff}
                   onOpenDetail={navigate}
+                  onBrowse={browseJob}
                 />
               ))}
             </div>

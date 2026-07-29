@@ -5,4 +5,10 @@ contextBridge.exposeInMainWorld("mapply", {
   quit: () => ipcRenderer.invoke("app-quit"),
   toggleFullscreen: () => ipcRenderer.invoke("toggle-fullscreen"),
   isElectron: true,
+
+  // Connectors. Only ever reports whether a site has a session — never reads or
+  // stores credentials; you sign in inside the embedded browser yourself.
+  browserPartition: "persist:mapply-jobsites",
+  connectorStatus: (domains) => ipcRenderer.invoke("connector-status", domains),
+  connectorDisconnect: (domain) => ipcRenderer.invoke("connector-disconnect", domain),
 });
