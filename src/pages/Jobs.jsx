@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api, openExternal } from "../lib/api.js";
@@ -157,6 +157,157 @@ function ScoreDetail({ score }) {
   );
 }
 
+/**
+ * One job card, memoised.
+ *
+ * The list runs to thousands of rows, and without this every keystroke or
+ * checkbox tick re-rendered all of them — a single toggle in select mode locked
+ * the UI for over 30 seconds. Memoised, only the row that actually changed
+ * re-renders. Callbacks are passed as stable references (useCallback in the
+ * parent) and take the job/id as an argument, so the props stay equal.
+ */
+const JobRow = memo(function JobRow({
+  job: j, selectMode, isSelected, isExpanded, manager,
+  onToggleSelect, onToggleExpand, onTailor, onApply,
+  onFindManager, onManagerHandoff, onOpenDetail,
+}) {
+  return (
+    <div
+      className="card !rounded-xl px-5 py-4 hover:border-royal/40 transition-colors"
+      style={
+        selectMode && isSelected
+          ? { borderColor: "var(--accent)", backgroundColor: "var(--accent-soft)" }
+          : undefined
+      }
+    >
+      <div className="flex items-center gap-4">
+        {selectMode && (
+          <input
+            type="checkbox"
+            className="w-4 h-4 shrink-0 cursor-pointer"
+            style={{ accentColor: "var(--accent)" }}
+            checked={isSelected}
+            onChange={() => onToggleSelect(j.id)}
+            aria-label={`Select ${j.title}`}
+          />
+        )}
+        <button
+          className="min-w-0 flex-1 text-left"
+          onClick={() =>
+            selectMode ? onToggleSelect(j.id) : onToggleExpand(isExpanded ? null : j.id)
+          }
+        >
+          <div className="flex items-center gap-2">
+            <span className="font-semibold truncate">{j.title}</span>
+            <span className="chip bg-ink-700 text-mist-dim shrink-0">
+              {SOURCE_LABELS[j.source] ?? j.source}
+            </span>
+          </div>
+          <div className="text-sm text-mist-dim truncate mt-0.5">
+            {j.company}
+            {j.location ? ` · ${j.location}` : ""}
+            {j.posted_date ? ` · ${daysAgo(j.posted_date)}` : ""}
+            {j.salary ? ` · ${j.salary}` : ""}
+          </div>
+        </button>
+        <ScoreBadge score={j.score} />
+        {!selectMode &&
+          (j.status === "tailored" ? (
+            <button
+              className="btn-primary !py-2 text-sm"
+              title="Opens the posting and moves this job to your Tracker"
+              onClick={() => onApply(j)}
+            >
+              Apply ↗
+            </button>
+          ) : (
+            <button
+              className="btn-ghost !py-2 text-sm"
+              title="Tailor this CV with Claude"
+              onClick={() => onTailor(j)}
+            >
+              Tailor
+            </button>
+          ))}
+      </div>
+      <AnimatePresence>
+        {isExpanded && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            className="overflow-hidden"
+          >
+            <ScoreDetail score={j.score} />
+            {j.description && (
+              <p className="mt-3 text-xs text-mist-dim line-clamp-6 whitespace-pre-wrap">
+                {j.description.slice(0, 700)}…
+              </p>
+            )}
+            <div className="flex items-center gap-4 mt-3">
+              <button
+                className="text-xs text-royal-light hover:underline"
+                onClick={() => openExternal(j.url)}
+              >
+                View original posting ↗
+              </button>
+              <button
+                className="text-xs text-royal-light hover:underline"
+                onClick={() => onFindManager(j)}
+              >
+                Search LinkedIn
+              </button>
+              <button
+                className="text-xs text-royal-light hover:underline"
+                title="Claude finds the person and drafts the message"
+                onClick={() => onManagerHandoff(j)}
+              >
+                Find hiring manager
+              </button>
+              <button
+                className="text-xs text-royal-light hover:underline"
+                onClick={() => onOpenDetail(`/jobs/${j.id}`)}
+              >
+                Full details →
+              </button>
+            </div>
+            {manager && (
+              <div className="mt-3 bg-ink-900/70 rounded-lg p-3 border border-ink-700/50">
+                <div className="text-xs text-mist-dim mb-2">{manager.note}</div>
+                <div className="flex flex-wrap gap-2">
+                  {manager.searches?.map((s) => (
+                    <button
+                      key={s.label}
+                      className="chip bg-royal/15 text-royal-light hover:bg-royal/25"
+                      onClick={() => openExternal(s.url)}
+                    >
+                      {s.label} ↗
+                    </button>
+                  ))}
+                </div>
+                {manager.emails_in_posting?.length > 0 && (
+                  <div className="text-xs text-good mt-2">
+                    Email in posting: {manager.emails_in_posting.join(", ")}
+                  </div>
+                )}
+                {manager.named_contact && (
+                  <div className="text-xs text-good mt-1">
+                    Named contact: {manager.named_contact}
+                  </div>
+                )}
+              </div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+});
+
+// Rows rendered per page. The full list is thousands of jobs; putting them all in
+// the DOM at once is what made the page sluggish before the cap.
+const PAGE = 100;
+
 export default function Jobs({ profile }) {
   const [jobs, setJobs] = useState([]);
   const [scan, setScan] = useState(null);
@@ -170,6 +321,10 @@ export default function Jobs({ profile }) {
   const [sort, setSort] = useState("score");
   const [filter, setFilter] = useState("");
   const [onlyScored, setOnlyScored] = useState(false);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selected, setSelected] = useState(() => new Set());
+  const [lastRemoved, setLastRemoved] = useState(null);
+  const [limit, setLimit] = useState(PAGE);
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
   const pollRef = useRef(null);
@@ -235,6 +390,51 @@ export default function Jobs({ profile }) {
     }
   }, [profile.id, pollScore]);
 
+  const toggleSelected = useCallback((id) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }, []);
+
+  const exitSelectMode = useCallback(() => {
+    setSelectMode(false);
+    setSelected(new Set());
+  }, []);
+
+  const enterSelectMode = useCallback(() => {
+    setExpanded(null); // a card left open would swallow clicks meant for selecting
+    setSelectMode(true);
+  }, []);
+
+  // Removing marks the jobs dismissed for THIS profile only. Nothing is deleted —
+  // the id stays on disk so the next scan recognises the posting and doesn't
+  // re-add it, and Undo simply flips the status back.
+  const removeSelected = useCallback(async () => {
+    const ids = [...selected];
+    if (!ids.length) return;
+    try {
+      await api.dismissJobs(profile.id, ids);
+      setLastRemoved(ids);
+      exitSelectMode();
+      loadJobs();
+    } catch (e) {
+      alert(e.message);
+    }
+  }, [profile.id, selected, exitSelectMode, loadJobs]);
+
+  const undoRemove = useCallback(async () => {
+    if (!lastRemoved) return;
+    try {
+      await api.dismissJobs(profile.id, lastRemoved, true);
+      setLastRemoved(null);
+      loadJobs();
+    } catch (e) {
+      alert(e.message);
+    }
+  }, [profile.id, lastRemoved, loadJobs]);
+
   // Applying moves a job out of the open pool: it leaves this list and lives in
   // the Tracker, so the next top 50 is a different set of jobs.
   const applyToJob = useCallback(
@@ -263,10 +463,13 @@ export default function Jobs({ profile }) {
   }, [profile.id]); // eslint-disable-line
 
   // Once a job is tailored it belongs to the Tracker, not this list — so the
-  // next deep rescore works on a completely different set of jobs.
+  // next top 50 works on a completely different set of jobs.
   const OPEN = new Set(["found", "scored"]);
   const openJobs = jobs.filter((j) => OPEN.has(j.status));
-  const movedOut = jobs.length - openJobs.length;
+  // Counted separately: a dismissed job is neither open nor in the tracker, so
+  // folding it into this number would inflate the tracker link.
+  const removedCount = jobs.filter((j) => j.status === "dismissed").length;
+  const movedOut = jobs.length - openJobs.length - removedCount;
 
   const rankedAll = [...openJobs].sort(
     (a, b) => (b.score?.total_100 ?? -1) - (a.score?.total_100 ?? -1)
@@ -279,25 +482,36 @@ export default function Jobs({ profile }) {
   const isScored = (j) => j.score?.model === "claude";
   const scoredCount = openJobs.filter(isScored).length;
 
-  const shown = openJobs
-    .filter((j) => (sort === "top50" ? top50Ids.has(j.id) : true))
-    .filter((j) => (onlyScored ? isScored(j) : true))
-    .filter((j) => {
-      if (!filter) return true;
-      const q = filter.toLowerCase();
-      return (
-        j.title?.toLowerCase().includes(q) ||
-        j.company?.toLowerCase().includes(q) ||
-        j.location?.toLowerCase().includes(q) ||
-        j.source?.toLowerCase().includes(q)
-      );
-    })
-    .sort((a, b) => {
-      if (sort === "score" || sort === "top50")
-        return (b.score?.total_100 ?? -1) - (a.score?.total_100 ?? -1);
-      if (sort === "date") return (b.posted_date ?? "").localeCompare(a.posted_date ?? "");
-      return (a.company ?? "").localeCompare(b.company ?? "");
-    });
+  // Memoised so ticking a checkbox doesn't re-filter and re-sort thousands of jobs.
+  const shown = useMemo(
+    () =>
+      openJobs
+        .filter((j) => (sort === "top50" ? top50Ids.has(j.id) : true))
+        .filter((j) => (onlyScored ? isScored(j) : true))
+        .filter((j) => {
+          if (!filter) return true;
+          const q = filter.toLowerCase();
+          return (
+            j.title?.toLowerCase().includes(q) ||
+            j.company?.toLowerCase().includes(q) ||
+            j.location?.toLowerCase().includes(q) ||
+            j.source?.toLowerCase().includes(q)
+          );
+        })
+        .sort((a, b) => {
+          if (sort === "score" || sort === "top50")
+            return (b.score?.total_100 ?? -1) - (a.score?.total_100 ?? -1);
+          if (sort === "date") return (b.posted_date ?? "").localeCompare(a.posted_date ?? "");
+          return (a.company ?? "").localeCompare(b.company ?? "");
+        }),
+    [jobs, sort, filter, onlyScored] // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
+  // Only a page of rows goes into the DOM; the rest is one click away.
+  const visible = useMemo(() => shown.slice(0, limit), [shown, limit]);
+
+  // Changing what's listed should start from the top again.
+  useEffect(() => setLimit(PAGE), [sort, filter, onlyScored]);
 
   return (
     <div className="p-10 max-w-6xl mx-auto">
@@ -338,6 +552,7 @@ export default function Jobs({ profile }) {
                 </button>
               </>
             )}
+            {removedCount > 0 && ` · ${removedCount} removed`}
           </p>
         </div>
         <div className="flex gap-3">
@@ -405,7 +620,73 @@ export default function Jobs({ profile }) {
             <option value="date">Sort: newest</option>
             <option value="company">Sort: company</option>
           </select>
+          <button
+            onClick={() => (selectMode ? exitSelectMode() : enterSelectMode())}
+            title="Pick jobs that aren't relevant to you and remove them. They won't come back on the next scan."
+            className="rounded-xl px-4 py-2.5 text-sm border transition-colors whitespace-nowrap"
+            style={{
+              borderColor: selectMode ? "var(--accent)" : "var(--border)",
+              backgroundColor: selectMode ? "var(--accent-soft)" : "transparent",
+              color: selectMode ? "var(--accent)" : "var(--text-mid)",
+            }}
+          >
+            {selectMode ? "Cancel" : "Remove jobs"}
+          </button>
         </div>
+
+        {/* selection bar — only while picking */}
+        {selectMode && (
+          <div
+            className="flex items-center gap-3 mb-4 rounded-xl px-4 py-3 border"
+            style={{ borderColor: "var(--accent)", backgroundColor: "var(--accent-soft)" }}
+          >
+            <span className="text-sm font-medium" style={{ color: "var(--accent)" }}>
+              {selected.size} selected
+            </span>
+            <span className="text-xs" style={{ color: "var(--text-mid)" }}>
+              Click a job to select it. Removing only affects {profile.id}'s list.
+            </span>
+            <div className="ml-auto flex gap-2">
+              <button
+                className="btn-ghost !py-1.5 text-sm"
+                title="Selects every job matching the current filter, not just the ones on screen"
+                onClick={() => setSelected(new Set(shown.map((j) => j.id)))}
+                disabled={shown.length === 0}
+              >
+                Select all matching ({shown.length})
+              </button>
+              <button
+                className="btn-primary !py-1.5 text-sm"
+                onClick={removeSelected}
+                disabled={selected.size === 0}
+              >
+                Remove {selected.size || ""}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* undo — removal is reversible, so say so */}
+        {lastRemoved && !selectMode && (
+          <div className="flex items-center gap-3 mb-4 rounded-xl px-4 py-3 border border-ink-700 bg-ink-900/70">
+            <span className="text-sm" style={{ color: "var(--text-mid)" }}>
+              Removed {lastRemoved.length} job{lastRemoved.length === 1 ? "" : "s"} from your
+              list. They won't be added back by future scans.
+            </span>
+            <div className="ml-auto flex gap-2">
+              <button className="btn-ghost !py-1.5 text-sm" onClick={undoRemove}>
+                Undo
+              </button>
+              <button
+                className="text-xs px-2"
+                style={{ color: "var(--text-dim)" }}
+                onClick={() => setLastRemoved(null)}
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* list */}
         {shown.length === 0 ? (
@@ -415,124 +696,35 @@ export default function Jobs({ profile }) {
             every UAE source.
           </div>
         ) : (
-          <div className="space-y-2">
-            {shown.map((j) => (
-              <div
-                key={j.id}
-                className="card !rounded-xl px-5 py-4 hover:border-royal/40 transition-colors"
+          <>
+            <div className="space-y-2">
+              {visible.map((j) => (
+                <JobRow
+                  key={j.id}
+                  job={j}
+                  selectMode={selectMode}
+                  isSelected={selected.has(j.id)}
+                  isExpanded={expanded === j.id}
+                  manager={managers[j.id]}
+                  onToggleSelect={toggleSelected}
+                  onToggleExpand={setExpanded}
+                  onTailor={setTailorJob}
+                  onApply={applyToJob}
+                  onFindManager={findManager}
+                  onManagerHandoff={setManagerHandoff}
+                  onOpenDetail={navigate}
+                />
+              ))}
+            </div>
+            {visible.length < shown.length && (
+              <button
+                className="btn-ghost w-full mt-3"
+                onClick={() => setLimit((n) => n + PAGE)}
               >
-                <div className="flex items-center gap-4">
-                  <button
-                    className="min-w-0 flex-1 text-left"
-                    onClick={() => setExpanded(expanded === j.id ? null : j.id)}
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold truncate">{j.title}</span>
-                      <span className="chip bg-ink-700 text-mist-dim shrink-0">
-                        {SOURCE_LABELS[j.source] ?? j.source}
-                      </span>
-                    </div>
-                    <div className="text-sm text-mist-dim truncate mt-0.5">
-                      {j.company}
-                      {j.location ? ` · ${j.location}` : ""}
-                      {j.posted_date ? ` · ${daysAgo(j.posted_date)}` : ""}
-                      {j.salary ? ` · ${j.salary}` : ""}
-                    </div>
-                  </button>
-                  <ScoreBadge score={j.score} />
-                  {j.status === "tailored" ? (
-                    <button
-                      className="btn-primary !py-2 text-sm"
-                      title="Opens the posting and moves this job to your Tracker"
-                      onClick={() => applyToJob(j)}
-                    >
-                      Apply ↗
-                    </button>
-                  ) : (
-                    <button
-                      className="btn-ghost !py-2 text-sm"
-                      title="Tailor this CV with Claude"
-                      onClick={() => setTailorJob(j)}
-                    >
-                      Tailor
-                    </button>
-                  )}
-                </div>
-                <AnimatePresence>
-                  {expanded === j.id && (
-                    <motion.div
-                      initial={{ opacity: 0, height: 0 }}
-                      animate={{ opacity: 1, height: "auto" }}
-                      exit={{ opacity: 0, height: 0 }}
-                      className="overflow-hidden"
-                    >
-                      <ScoreDetail score={j.score} />
-                      {j.description && (
-                        <p className="mt-3 text-xs text-mist-dim line-clamp-6 whitespace-pre-wrap">
-                          {j.description.slice(0, 700)}…
-                        </p>
-                      )}
-                      <div className="flex items-center gap-4 mt-3">
-                        <button
-                          className="text-xs text-royal-light hover:underline"
-                          onClick={() => openExternal(j.url)}
-                        >
-                          View original posting ↗
-                        </button>
-                        <button
-                          className="text-xs text-royal-light hover:underline"
-                          onClick={() => findManager(j)}
-                        >
-                          Search LinkedIn
-                        </button>
-                        <button
-                          className="text-xs text-royal-light hover:underline"
-                          title="Claude finds the person and drafts the message"
-                          onClick={() => setManagerHandoff(j)}
-                        >
-                          Find hiring manager
-                        </button>
-                        <button
-                          className="text-xs text-royal-light hover:underline"
-                          onClick={() => navigate(`/jobs/${j.id}`)}
-                        >
-                          Full details →
-                        </button>
-                      </div>
-                      {managers[j.id] && (
-                        <div className="mt-3 bg-ink-900/70 rounded-lg p-3 border border-ink-700/50">
-                          <div className="text-xs text-mist-dim mb-2">
-                            {managers[j.id].note}
-                          </div>
-                          <div className="flex flex-wrap gap-2">
-                            {managers[j.id].searches?.map((s) => (
-                              <button
-                                key={s.label}
-                                className="chip bg-royal/15 text-royal-light hover:bg-royal/25"
-                                onClick={() => openExternal(s.url)}
-                              >
-                                {s.label} ↗
-                              </button>
-                            ))}
-                          </div>
-                          {managers[j.id].emails_in_posting?.length > 0 && (
-                            <div className="text-xs text-good mt-2">
-                              Email in posting: {managers[j.id].emails_in_posting.join(", ")}
-                            </div>
-                          )}
-                          {managers[j.id].named_contact && (
-                            <div className="text-xs text-good mt-1">
-                              Named contact: {managers[j.id].named_contact}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-            ))}
-          </div>
+                Show more — {shown.length - visible.length} remaining
+              </button>
+            )}
+          </>
         )}
       </div>
     </div>

@@ -13,7 +13,16 @@ from pathlib import Path
 
 from paths import JOBS_FOUND, TAILORED, profile_dir
 
-STATUSES = ["found", "scored", "tailored", "applied", "replied", "interview", "offer", "rejected"]
+STATUSES = ["found", "scored", "tailored", "applied", "replied", "interview", "offer",
+            "rejected", "dismissed"]
+
+# "dismissed" = the user removed this job as irrelevant to them. The file stays in
+# jobs_found/ on purpose: existing_ids() still sees the id, so the next scan treats
+# the posting as already-known and never re-adds it. It is also deliberately NOT in
+# ACTED_ON, so a repost of a dismissed role is skipped as a duplicate rather than
+# resurfacing. Dismissals are per-profile because everything lives under
+# profiles/<Name>/.
+DISMISSED = "dismissed"
 
 
 def _slug(text: str, maxlen: int = 40) -> str:

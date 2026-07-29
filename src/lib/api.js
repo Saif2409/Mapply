@@ -42,6 +42,11 @@ export const api = {
   jobs: (name) => request(`/api/profiles/${encodeURIComponent(name)}/jobs`),
   jobsRevision: (name) =>
     request(`/api/profiles/${encodeURIComponent(name)}/jobs/revision`),
+  dismissJobs: (name, ids, restore = false) =>
+    request(`/api/profiles/${encodeURIComponent(name)}/jobs/dismiss`, {
+      method: "POST",
+      body: JSON.stringify({ ids, restore }),
+    }),
   patchJob: (name, jid, patch) =>
     request(`/api/profiles/${encodeURIComponent(name)}/jobs/${jid}`, {
       method: "PATCH",

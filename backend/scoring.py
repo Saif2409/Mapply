@@ -713,7 +713,11 @@ def start_scoring(profile: str, only_unscored: bool = True, model: str = DEFAULT
         ranked = sorted(open_pool, key=candidate_rank)
         targets = [j["id"] for j in ranked[:deep_top]]
     else:
-        targets = [j["id"] for j in jobs if (not only_unscored or _needs_score(j))]
+        # jobs the user removed as irrelevant are never worth spending a pass on
+        targets = [
+            j["id"] for j in jobs
+            if j.get("status") != "dismissed" and (not only_unscored or _needs_score(j))
+        ]
 
     with _lock:
         _runs[profile] = {"running": bool(targets), "done": 0, "total": len(targets),

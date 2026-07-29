@@ -131,6 +131,47 @@ def patch_job(name: str, jid: str, body: JobPatch):
         raise HTTPException(404, str(e))
 
 
+class DismissBody(BaseModel):
+    ids: list[str]
+    restore: bool = False
+
+
+@app.post("/api/profiles/{name}/jobs/dismiss")
+def dismiss_jobs(name: str, body: DismissBody):
+    """Remove jobs from this profile's pool (or put them back).
+
+    Nothing is deleted — the job is marked so the next scan recognises it and
+    doesn't re-add it. Only ever touches profiles/<name>/, so removing a job as
+    Saif leaves Mais's copy untouched.
+    """
+    # loaded once: the job store is ~3.8k files, so looking each id up inside the
+    # loop would re-read all of them per selected job
+    by_id = {j["id"]: j for j in jobs_mod.load_jobs(name)}
+    changed, skipped = 0, []
+    for jid in body.ids:
+        job = by_id.get(jid)
+        if job is None:
+            skipped.append(jid)
+            continue
+        if body.restore:
+            if job.get("status") != jobs_mod.DISMISSED:
+                skipped.append(jid)
+                continue
+            # a restored job goes back to scored if it still has a score, else found
+            new_status = "scored" if job.get("score") else "found"
+        else:
+            # only the open pool can be dismissed; tailored/applied jobs belong to
+            # the tracker and are not silently thrown away
+            if job.get("status") not in ("found", "scored"):
+                skipped.append(jid)
+                continue
+            new_status = jobs_mod.DISMISSED
+        jobs_mod.update_job(name, jid, {"status": new_status})
+        changed += 1
+    return {"changed": changed, "skipped": skipped,
+            "action": "restored" if body.restore else "dismissed"}
+
+
 @app.post("/api/profiles/{name}/scan")
 def post_scan(name: str):
     ensure_profile_dirs(name)
