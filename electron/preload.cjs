@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld("mapply", {
   browserPartition: "persist:mapply-jobsites",
   connectorStatus: (domains) => ipcRenderer.invoke("connector-status", domains),
   connectorDisconnect: (domain) => ipcRenderer.invoke("connector-disconnect", domain),
+  connectorDebug: () => ipcRenderer.invoke("connector-debug"),
 
   // Drag a generated CV/cover letter into a page's upload field.
   startFileDrag: (filePath) => ipcRenderer.send("start-file-drag", filePath),

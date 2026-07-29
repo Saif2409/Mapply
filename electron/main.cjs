@@ -149,25 +149,74 @@ function jobSession() {
   return session.fromPartition(BROWSER_PARTITION);
 }
 
-/** Connected = this site has left cookies behind, which only happens once you
- *  have actually signed in. We never read cookie VALUES, only that they exist. */
+/** Writes what the session actually holds, so a wrong "not connected" can be
+ *  diagnosed from evidence instead of guesswork. Names only, never values. */
+async function logCookieInventory(tag) {
+  try {
+    const fs = require("fs");
+    const all = await jobSession().cookies.get({});
+    const byHost = {};
+    for (const c of all) {
+      (byHost[c.domain] ||= []).push(c.name + (c.httpOnly ? "*" : ""));
+    }
+    const lines = Object.entries(byHost)
+      .map(([h, names]) => `  ${h}  (${names.length})  ${names.slice(0, 10).join(", ")}`)
+      .join("\n");
+    fs.appendFileSync(
+      path.join(app.getPath("userData"), "connectors.log"),
+      `\n=== ${new Date().toISOString()} ${tag} — ${all.length} cookies in ${BROWSER_PARTITION}\n${lines}\n`
+    );
+  } catch {}
+}
+
+/** Connected = this domain holds a durable, httpOnly cookie.
+ *
+ *  Earlier versions guessed at session cookie NAMES, which silently failed:
+ *  LinkedIn's session cookie is `li_at`, matching none of the usual
+ *  sess/auth/token patterns. Signing in is what sets httpOnly cookies with an
+ *  expiry — analytics and consent cookies a logged-out visit drops are
+ *  script-readable — so that is the signal, and it needs no per-site knowledge.
+ *
+ *  Values are never read; only name, flags and domain. */
 ipcMain.handle("connector-status", async (_e, domains) => {
   const out = {};
   if (!Array.isArray(domains)) return out;
+
+  // One read, then match locally: the `domain` filter is fussy about leading
+  // dots and subdomains, which is the other half of why this used to under-report.
+  let all = [];
+  try {
+    all = await jobSession().cookies.get({});
+  } catch {}
+
   for (const d of domains) {
-    try {
-      const cookies = await jobSession().cookies.get({ domain: d });
-      // a logged-out visit still drops consent/analytics cookies, so require a
-      // session-ish cookie rather than merely "some cookie exists"
-      const signedIn = cookies.some(
-        (c) => /sess|auth|token|login|_id$|jsessionid/i.test(c.name) && c.value
-      );
-      out[d] = { cookies: cookies.length, connected: signedIn };
-    } catch {
-      out[d] = { cookies: 0, connected: false };
-    }
+    const bare = d.replace(/^\./, "").toLowerCase();
+    const mine = all.filter((c) => {
+      const host = (c.domain || "").replace(/^\./, "").toLowerCase();
+      return host === bare || host.endsWith("." + bare);
+    });
+    out[d] = {
+      cookies: mine.length,
+      connected: mine.some((c) => c.httpOnly && c.expirationDate),
+    };
   }
+
+  try {
+    const fs = require("fs");
+    const summary = Object.entries(out)
+      .map(([d, s]) => `${d}=${s.connected ? "connected" : "no"}(${s.cookies})`)
+      .join(" ");
+    fs.appendFileSync(
+      path.join(app.getPath("userData"), "connectors.log"),
+      `${new Date().toISOString()} status: ${summary}\n`
+    );
+  } catch {}
   return out;
+});
+
+ipcMain.handle("connector-debug", async () => {
+  await logCookieInventory("on request");
+  return { log: path.join(app.getPath("userData"), "connectors.log") };
 });
 
 /** Drag a generated PDF out of the side panel and into a page's upload field.
@@ -230,6 +279,7 @@ app.whenReady().then(async () => {
     );
   }
   startWatchdog();
+  logCookieInventory("app start");
 });
 
 app.on("window-all-closed", () => {
