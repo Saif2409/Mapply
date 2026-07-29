@@ -52,7 +52,7 @@ export default function Dashboard({ profile }) {
         <div className="relative">
           <h2 className="text-xl font-semibold">Scan the UAE job market</h2>
           <p className="text-mist-dim text-sm mt-1 max-w-md">
-            Searches Indeed, LinkedIn, Bayt, Glassdoor, Google Jobs, Gulf boards and your
+            Searches Indeed, LinkedIn, Bayt, GulfTalent, NaukriGulf, Google Jobs and your
             watchlist companies — new postings land in your Jobs list.
           </p>
         </div>
