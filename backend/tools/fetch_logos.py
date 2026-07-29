@@ -27,6 +27,10 @@ SITES = {
     "bayt": "https://www.bayt.com/en/uae/",
     "indeed": "https://www.indeed.com/",
     "gulftalent": "https://www.gulftalent.com/",
+    "tanqeeb": "https://uae.tanqeeb.com/",
+    # glassdoor.com 403s every path for non-browser clients; the .ae mirror and
+    # their static CDN still serve the icon
+    "glassdoor": "https://www.glassdoor.co.in/",
     "emirates": "https://www.emiratesgroupcareers.com/",
     "sap": "https://jobs.sap.com/",
     "amazon": "https://www.amazon.jobs/",

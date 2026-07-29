@@ -132,7 +132,8 @@ def _run_scan(profile: str, search_terms: list[str]):
         tasks[pool.submit(_consume, profile, "bigco", bigco_run(), seen, seen_lock, index)] = "bigco"
 
         # Gulf-native boards — search every role term
-        for name, fn in (("bayt", gulf.bayt), ("gulftalent", gulf.gulftalent), ("naukrigulf", gulf.naukrigulf)):
+        for name, fn in (("bayt", gulf.bayt), ("gulftalent", gulf.gulftalent),
+                         ("naukrigulf", gulf.naukrigulf), ("tanqeeb", gulf.tanqeeb)):
             def make_gulf(fn=fn):
                 def run():
                     for term in search_terms:
@@ -167,7 +168,7 @@ def start_scan(profile: str) -> dict:
         state["running"] = True
         state["started"] = datetime.now().isoformat(timespec="seconds")
         sources = ["indeed", "linkedin", "google", "remote", "watchlist", "bigco",
-                   "bayt", "gulftalent", "naukrigulf"]
+                   "bayt", "gulftalent", "naukrigulf", "tanqeeb"]
         state["sources"] = {s: {"status": "pending", "found": 0, "new": 0, "duplicates": 0, "error": None} for s in sources}
         _scans[profile] = state
 

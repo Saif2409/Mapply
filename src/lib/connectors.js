@@ -45,6 +45,20 @@ export const CONNECTORS = [
     note: "Regional board",
   },
   {
+    id: "tanqeeb",
+    name: "Tanqeeb",
+    domain: ".tanqeeb.com",
+    loginUrl: "https://uae.tanqeeb.com/ar/login",
+    note: "~26k UAE listings, many remote",
+  },
+  {
+    id: "glassdoor",
+    name: "Glassdoor",
+    domain: ".glassdoor.com",
+    loginUrl: "https://www.glassdoor.com/member/login",
+    note: "Blocks plain scrapers — sign in so jobs can be read in-app",
+  },
+  {
     id: "emirates",
     name: "Emirates Group",
     domain: ".emiratesgroupcareers.com",

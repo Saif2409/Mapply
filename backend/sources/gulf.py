@@ -55,6 +55,55 @@ def _relative_date(text: str) -> str | None:
     return (date.today() - timedelta(days=days)).isoformat()
 
 
+# Tanqeeb renders dates in Arabic ("منذ 6 ساعة" = 6 hours ago), and the digits may
+# be Arabic-Indic. Without this every Tanqeeb job would look undated.
+_AR_DIGITS = str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789")
+_AR_UNITS = [
+    (r"دقيق", 0),        # minute
+    (r"ساع", 0),         # hour
+    (r"يوم|أيام", 1),     # day
+    (r"أسبوع|اسبوع", 7),  # week
+    (r"شهر|أشهر", 30),    # month
+    (r"سنة|عام", 365),
+]
+
+
+_AR_MONTHS = {
+    "يناير": 1, "فبراير": 2, "مارس": 3, "أبريل": 4, "ابريل": 4, "مايو": 5,
+    "يونيو": 6, "يوليو": 7, "أغسطس": 8, "اغسطس": 8, "سبتمبر": 9,
+    "أكتوبر": 10, "اكتوبر": 10, "نوفمبر": 11, "ديسمبر": 12,
+}
+
+
+def _date_ar(text: str) -> str | None:
+    """Tanqeeb prints either a relative age ("منذ 6 ساعة") or an absolute date
+    ("١٩ يوليو ٢٠٢٦") in Arabic-Indic digits. Handle both, or every listing from
+    that board looks undated and gets the neutral freshness score."""
+    t = (text or "").translate(_AR_DIGITS).strip()
+    if not t:
+        return None
+
+    # absolute: <day> <month name> <year>
+    for name, month in _AR_MONTHS.items():
+        if name in t:
+            nums = re.findall(r"\d+", t)
+            if len(nums) >= 2:
+                day, year = int(nums[0]), int(nums[-1])
+                try:
+                    return date(year, month, min(day, 28) if day > 31 else day).isoformat()
+                except ValueError:
+                    return None
+            return None
+
+    # relative: "منذ N <unit>"
+    num = re.search(r"(\d+)", t)
+    n = int(num.group(1)) if num else 1
+    for pattern, per in _AR_UNITS:
+        if re.search(pattern, t):
+            return (date.today() - timedelta(days=n * per)).isoformat()
+    return _relative_date(t)
+
+
 # ---------------- Bayt ----------------
 
 JOB_BLOCK = re.compile(
@@ -189,6 +238,83 @@ def gulftalent(search_term: str, limit: int = 60, pages: int = 3):
                 title=name, company="Unknown (GulfTalent)", url=url,
                 source="gulftalent", location="UAE", posted_date=None, description="",
             )
+
+
+# ---------------- Tanqeeb ----------------
+#
+# ~26k live UAE postings. Two traps found while wiring it up:
+#   * the search param is `keywords` (plural). `keyword` is silently ignored and
+#     returns an unfiltered list, so "data scientist" and "nurse" come back
+#     identical — which looks like a working scraper returning junk.
+#   * only the /ar/ route serves search; /en/jobs/search 404s. The listings
+#     themselves are ~78% English, so the Arabic path is not a problem.
+
+TANQEEB_CARD = re.compile(r'<article id="JOB-[^"]+" data-id="(?P<id>\d+)"(?P<rest>.*?)</article>', re.S)
+
+
+def tanqeeb(search_term: str, limit: int = 120, pages: int = 4):
+    seen_urls = set()
+    count = 0
+    for page in range(1, pages + 1):
+        url = (
+            "https://uae.tanqeeb.com/ar/jobs/search"
+            f"?keywords={quote(search_term)}&page_no={page}"
+        )
+        r = _get(url)
+        if not r:
+            return
+        got = 0
+        for job in _tanqeeb_page(r.text):
+            if job["url"] in seen_urls:
+                continue
+            seen_urls.add(job["url"])
+            got += 1
+            count += 1
+            yield job
+            if count >= limit:
+                return
+        if got == 0:
+            return
+
+
+def _tanqeeb_page(html: str):
+    for m in TANQEEB_CARD.finditer(html):
+        card = m.group("rest")
+
+        tm = re.search(r"<h5[^>]*>(.*?)</h5>", card, re.S)
+        title = _txt(tm.group(1)) if tm else ""
+        if not title:
+            continue
+
+        pm = re.search(r'href="(/ar/jobs-in-uae/[^"]+\.html)"', card)
+        path = pm.group(1) if pm else f"/ar/jobs-in-uae/all/jobs/0{m.group('id')}.html"
+
+        cm = re.search(r'class="search-job-company-name"[^>]*>(.*?)</span>', card, re.S)
+        company = _txt(cm.group(1)) if cm else "Unknown (Tanqeeb)"
+
+        lm = re.search(r'class="search-job-location-text"[^>]*>(.*?)</', card, re.S)
+        location = _txt(lm.group(1)) if lm else "UAE"
+
+        dm = re.search(r'class="search-job-date"[^>]*>(.*?)</', card, re.S)
+        posted = _date_ar(_txt(dm.group(1))) if dm else None
+
+        wm = re.search(r'class="search-job-workplace"[^>]*>(.*?)</', card, re.S)
+        workplace = _txt(wm.group(1)) if wm else ""
+        # The remote marker is Arabic — "(عن بُعد)" — and the title often says so
+        # in English too. Either counts: remote-from-UAE roles are wanted.
+        blob = f"{workplace} {title}".lower()
+        if "عن بعد" in workplace.replace("ُ", "") or "remote" in blob:
+            location = f"{location} · Remote"
+
+        yield new_job(
+            title=title,
+            company=company,
+            url=f"https://uae.tanqeeb.com{path}",
+            source="tanqeeb",
+            location=location,
+            posted_date=posted,
+            description="",
+        )
 
 
 # ---------------- NaukriGulf ----------------

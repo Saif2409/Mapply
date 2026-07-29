@@ -10,7 +10,8 @@ import SiteBrowser from "../components/SiteBrowser.jsx";
 const SOURCE_LABELS = {
   indeed: "Indeed", linkedin: "LinkedIn", bayt: "Bayt", glassdoor: "Glassdoor",
   google: "Google Jobs", watchlist: "Watchlist ATS", naukrigulf: "NaukriGulf",
-  gulftalent: "GulfTalent", greenhouse: "Greenhouse", lever: "Lever", ashby: "Ashby",
+  gulftalent: "GulfTalent", tanqeeb: "Tanqeeb",
+  greenhouse: "Greenhouse", lever: "Lever", ashby: "Ashby",
   recruitee: "Recruitee", smartrecruiters: "SmartRecruiters", workday: "Workday",
   remote: "Remote", bigco: "Big employers", amazon: "Amazon", sap: "SAP",
   microsoft: "Microsoft",
