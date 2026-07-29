@@ -131,6 +131,50 @@ def patch_job(name: str, jid: str, body: JobPatch):
         raise HTTPException(404, str(e))
 
 
+@app.get("/api/profiles/{name}/autofill")
+def get_autofill(name: str):
+    """Flat field map for filling application forms.
+
+    Only the facts a form asks for and the user would type identically every
+    time. Judgement answers — salary expectations, "why this company", notice
+    period — are deliberately absent: guessing those into a real application is
+    worse than leaving them blank.
+    """
+    try:
+        master = profiles_mod.read_master(name)
+    except FileNotFoundError as e:
+        raise HTTPException(404, str(e))
+
+    p = master.get("personal", {}) or {}
+    links = p.get("links", {}) or {}
+    edu = (master.get("education") or [{}])[0]
+    full = (p.get("name") or "").strip()
+    first, _, last = full.partition(" ")
+    city, _, country = (p.get("location") or "").partition(",")
+
+    return {
+        "full_name": full,
+        "first_name": first,
+        "last_name": last.strip(),
+        "email": p.get("email", ""),
+        "phone": p.get("phone", ""),
+        "location": p.get("location", ""),
+        "city": city.strip(),
+        "country": country.strip(),
+        "linkedin": links.get("linkedin", ""),
+        "github": links.get("github", ""),
+        "portfolio": links.get("portfolio", "") or links.get("github", ""),
+        "university": edu.get("institution", ""),
+        "degree": edu.get("degree", ""),
+        "graduation_year": str(edu.get("graduation", "")),
+        "visa_status": p.get("visa", ""),
+        "work_authorised": "Yes" if p.get("visa") else "",
+        "needs_sponsorship": "No" if p.get("visa") else "",
+        "languages": ", ".join(p.get("languages") or []),
+        "driving_license": p.get("driving_license", ""),
+    }
+
+
 class DismissBody(BaseModel):
     ids: list[str]
     restore: bool = False

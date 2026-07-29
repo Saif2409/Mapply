@@ -80,6 +80,7 @@ export const api = {
       method: "POST",
       body: JSON.stringify(contact),
     }),
+  autofill: (name) => request(`/api/profiles/${encodeURIComponent(name)}/autofill`),
   criteria: (name) => request(`/api/profiles/${encodeURIComponent(name)}/criteria`),
   watchlist: (name) => request(`/api/profiles/${encodeURIComponent(name)}/watchlist`),
 };

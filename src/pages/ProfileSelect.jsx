@@ -9,6 +9,7 @@ const AVATAR_COLORS = [null, "#7C3AED", "#0E9F6E", "#D97706"];
 export default function ProfileSelect({ onSelect, theme }) {
   const [profiles, setProfiles] = useState(null);
   const [error, setError] = useState(null);
+  const [slow, setSlow] = useState(false);
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
   const [busy, setBusy] = useState(false);
@@ -21,6 +22,8 @@ export default function ProfileSelect({ onSelect, theme }) {
 
   useEffect(() => {
     load();
+    const t = setTimeout(() => setSlow(true), 2500);
+    return () => clearTimeout(t);
   }, []);
 
   const create = async () => {
@@ -58,14 +61,24 @@ export default function ProfileSelect({ onSelect, theme }) {
         <p className="mt-2 text-mist-dim">Who's applying today?</p>
 
         {error && (
-          <div className="mt-6 card px-4 py-3 text-bad text-sm max-w-md text-center">
-            {error} — is the Mapply backend running?
+          <div className="mt-6 card px-4 py-3 text-sm max-w-md text-center">
+            <div className="text-bad font-medium">Can't reach the Mapply backend</div>
+            <div className="mt-1" style={{ color: "var(--text-mid)" }}>
+              {window.mapply?.isElectron
+                ? "It normally starts with the app. See %APPDATA%\\Mapply\\backend.log, then reopen Mapply."
+                : "You're viewing Mapply in a browser, which can't start the backend — open the desktop app instead."}
+            </div>
+            <div className="mt-1 text-xs" style={{ color: "var(--text-dim)" }}>{error}</div>
           </div>
         )}
 
         <div className="mt-10 flex flex-wrap items-stretch justify-center gap-5 max-w-3xl">
           {profiles === null && !error && (
-            <div className="text-mist-dim animate-pulse">Loading profiles…</div>
+            // Reads are retried for ~12s while Python boots. Without saying so, a
+            // slow first start looks identical to the app being broken.
+            <div className="text-mist-dim animate-pulse">
+              {slow ? "Waiting for the backend to start…" : "Loading profiles…"}
+            </div>
           )}
 
           {profiles?.map((p, i) => (

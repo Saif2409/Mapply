@@ -526,6 +526,8 @@ export default function Jobs({ profile }) {
         <SiteBrowser
           url={browseTarget.url}
           title={`${browseTarget.title} at ${browseTarget.company}`}
+          profile={profile}
+          job={browseTarget}
           onClose={() => setBrowseTarget(null)}
         />
       )}

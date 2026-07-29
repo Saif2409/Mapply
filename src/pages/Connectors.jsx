@@ -1,6 +1,40 @@
 import { useCallback, useEffect, useState } from "react";
 import { CONNECTORS } from "../lib/connectors.js";
+import { LOGOS } from "../lib/logos.js";
 import SiteBrowser from "../components/SiteBrowser.jsx";
+
+/**
+ * The site's real favicon, on a white tile so dark-on-transparent marks stay
+ * legible in the dark themes. Falls back to a monogram if the icon is missing or
+ * fails to decode — a broken-image square would look worse than a letter.
+ */
+function SiteLogo({ site, connected }) {
+  const [broken, setBroken] = useState(false);
+  const src = LOGOS[site.id];
+  if (!src || broken) {
+    return (
+      <div
+        className="w-10 h-10 rounded-lg flex items-center justify-center font-bold shrink-0 text-white"
+        style={{ backgroundColor: connected ? "var(--accent)" : "var(--border)" }}
+      >
+        {site.name[0]}
+      </div>
+    );
+  }
+  return (
+    <div
+      className="w-10 h-10 rounded-lg shrink-0 flex items-center justify-center overflow-hidden bg-white"
+      style={{ border: "1px solid var(--border)" }}
+    >
+      <img
+        src={src}
+        alt=""
+        className="w-7 h-7 object-contain"
+        onError={() => setBroken(true)}
+      />
+    </div>
+  );
+}
 
 /**
  * Sign in to the job sites once, inside Mapply, so applying doesn't bounce you
@@ -80,12 +114,7 @@ export default function Connectors() {
           const st = status[c.domain] ?? {};
           return (
             <div key={c.id} className="card !rounded-xl px-5 py-4 flex items-center gap-4">
-              <div
-                className="w-10 h-10 rounded-lg flex items-center justify-center font-bold shrink-0 text-white"
-                style={{ backgroundColor: st.connected ? "var(--accent)" : "var(--border)" }}
-              >
-                {c.name[0]}
-              </div>
+              <SiteLogo site={c} connected={st.connected} />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <span className="font-semibold truncate">{c.name}</span>

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell } = require("electron");
+const { app, BrowserWindow, ipcMain, nativeImage, shell } = require("electron");
 const path = require("path");
 const { spawn } = require("child_process");
 const net = require("net");
@@ -168,6 +168,21 @@ ipcMain.handle("connector-status", async (_e, domains) => {
     }
   }
   return out;
+});
+
+/** Drag a generated PDF out of the side panel and into a page's upload field.
+ *  startDrag hands the OS a real file, so the drop target sees an ordinary file
+ *  drop — which is why this works on sites that reject scripted file inputs. */
+ipcMain.on("start-file-drag", (event, filePath) => {
+  const fs = require("fs");
+  if (typeof filePath !== "string" || !fs.existsSync(filePath)) return;
+  try {
+    event.sender.startDrag({
+      file: filePath,
+      icon: nativeImage.createFromPath(path.join(__dirname, "..", "resources", "icon.png"))
+        .resize({ width: 64, height: 64 }),
+    });
+  } catch {}
 });
 
 ipcMain.handle("connector-disconnect", async (_e, domain) => {

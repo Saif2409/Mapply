@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { openExternal } from "../lib/api.js";
+import ApplyPanel from "./ApplyPanel.jsx";
 
 /**
  * A real browser inside Mapply.
@@ -11,11 +12,13 @@ import { openExternal } from "../lib/api.js";
  *
  * Falls back to a message in the dev browser, where <webview> doesn't exist.
  */
-export default function SiteBrowser({ url, title, onClose }) {
+export default function SiteBrowser({ url, title, onClose, profile, job }) {
   const ref = useRef(null);
   const [current, setCurrent] = useState(url);
   const [loading, setLoading] = useState(true);
   const [canGo, setCanGo] = useState({ back: false, forward: false });
+  // The helper is only meaningful when we know whose details to fill.
+  const [showPanel, setShowPanel] = useState(!!profile);
   const partition = window.mapply?.browserPartition ?? "persist:mapply-jobsites";
   const embedded = !!window.mapply?.isElectron;
 
@@ -79,6 +82,15 @@ export default function SiteBrowser({ url, title, onClose }) {
         >
           {loading ? "Loading…" : current}
         </div>
+        {profile && embedded && (
+          <button
+            className="btn-ghost !py-1.5 !px-3 text-sm"
+            onClick={() => setShowPanel((v) => !v)}
+            title="Fill your details and reach your tailored documents"
+          >
+            {showPanel ? "Hide helper" : "Apply helper"}
+          </button>
+        )}
         <button
           className="btn-ghost !py-1.5 !px-3 text-sm"
           onClick={() => openExternal(current)}
@@ -89,7 +101,8 @@ export default function SiteBrowser({ url, title, onClose }) {
       </div>
 
       {/* the page */}
-      <div className="flex-1 min-h-0 bg-white">
+      <div className="flex-1 min-h-0 flex">
+        <div className="flex-1 min-w-0 bg-white">
         {embedded ? (
           <webview
             ref={ref}
@@ -110,6 +123,16 @@ export default function SiteBrowser({ url, title, onClose }) {
               </button>
             </div>
           </div>
+        )}
+        </div>
+
+        {profile && embedded && showPanel && (
+          <ApplyPanel
+            profile={profile}
+            job={job}
+            webviewRef={ref}
+            onClose={() => setShowPanel(false)}
+          />
         )}
       </div>
     </div>
