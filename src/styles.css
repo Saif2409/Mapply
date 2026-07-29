@@ -1,0 +1,140 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ---------------------------------------------------------------
+   Theme tokens. The real values are injected onto <html> by
+   src/lib/theme.js (4 themes); these are the Midnight fallbacks so
+   the first paint is never unstyled. `.light` on <html> additionally
+   remaps the legacy dark-palette utility classes further down.
+   --------------------------------------------------------------- */
+:root {
+  --accent: #2456e6;
+  --accent-light: #4f7dff;
+  --accent-dark: #1a3fae;
+  --accent-soft: rgba(36, 86, 230, 0.15);
+  --wordmark-rest: #ffffff;
+  --bg: #070b14;
+  --surface: rgba(15, 22, 40, 0.8);
+  --surface-solid: #0b1020;
+  --sidebar: rgba(11, 16, 32, 0.6);
+  --border: rgba(28, 39, 66, 0.6);
+  --text: #e8edfa;
+  --text-dim: #6b7794;
+  --text-mid: #aab6d3;
+  --input-bg: #070b14;
+  --hover: rgba(20, 28, 51, 0.7);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background-color: var(--bg);
+  color: var(--text);
+  @apply font-body antialiased overflow-hidden;
+  transition: background-color 0.25s ease, color 0.25s ease;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-dim);
+  background-clip: content-box;
+}
+
+@layer components {
+  .card {
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+    @apply rounded-2xl shadow-card;
+  }
+  html.light .card {
+    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 8px 24px -12px rgba(16, 24, 40, 0.12);
+  }
+  .btn-primary {
+    background-color: var(--accent);
+    @apply text-white font-semibold rounded-xl px-5 py-2.5 transition-colors
+      duration-150 disabled:opacity-40 disabled:pointer-events-none;
+  }
+  .btn-primary:hover {
+    background-color: var(--accent-light);
+  }
+  .btn-primary:active {
+    background-color: var(--accent-dark);
+  }
+  .btn-ghost {
+    background-color: var(--hover);
+    border: 1px solid var(--border);
+    color: var(--text-mid);
+    @apply rounded-xl px-5 py-2.5 transition-colors duration-150;
+  }
+  .btn-ghost:hover {
+    color: var(--text);
+  }
+  .chip {
+    @apply inline-flex items-center gap-1.5 text-xs font-medium rounded-full px-2.5 py-1;
+  }
+
+  /* semantic text/surface helpers so pages don't hardcode palette colours */
+  .t-primary { color: var(--text); }
+  .t-mid { color: var(--text-mid); }
+  .t-dim { color: var(--text-dim); }
+  .surface-input {
+    background-color: var(--input-bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+  }
+}
+
+/* Map the existing dark-palette utility classes onto theme tokens so every
+   page picks up light mode without being rewritten. */
+html.light .text-mist-bright { color: var(--text) !important; }
+html.light .text-mist { color: var(--text-mid) !important; }
+html.light .text-mist-dim { color: var(--text-dim) !important; }
+html.light .text-white { color: var(--text) !important; }
+html.light .bg-ink-950 { background-color: var(--bg) !important; }
+html.light .bg-ink-900\/60,
+html.light .bg-ink-900\/70,
+html.light .bg-ink-900 { background-color: var(--hover) !important; }
+html.light .bg-ink-800\/60,
+html.light .bg-ink-800\/70,
+html.light .bg-ink-800,
+html.light .bg-ink-700 { background-color: var(--hover) !important; }
+html.light .border-ink-800,
+html.light .border-ink-700,
+html.light .border-ink-700\/50,
+html.light .border-ink-700\/60,
+html.light .border-ink-700\/70,
+html.light .border-ink-600 { border-color: var(--border) !important; }
+html.light .chip.bg-ink-700 { color: var(--text-mid) !important; }
+html.light textarea,
+html.light input[type="text"],
+html.light input:not([type]),
+html.light select { background-color: var(--input-bg) !important; color: var(--text) !important; }
+
+/* Accent-aware remaps so every theme's colour flows through existing markup */
+.text-royal, .text-royal-light { color: var(--accent) !important; }
+.bg-royal, .bg-royal-light, .bg-royal-dark { background-color: var(--accent) !important; }
+.bg-royal\/15, .bg-royal\/10 { background-color: var(--accent-soft) !important; }
+.bg-royal\/25:hover, .hover\:bg-royal\/25:hover { background-color: var(--accent-soft) !important; }
+.border-royal\/25, .border-royal\/40, .border-royal\/50, .border-royal\/60 {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent) !important;
+}
+.focus\:border-royal:focus { border-color: var(--accent) !important; }
+.shadow-glowblue { box-shadow: 0 0 40px -8px color-mix(in srgb, var(--accent) 50%, transparent) !important; }
+aside { background-color: var(--sidebar) !important; }

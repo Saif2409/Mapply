@@ -1,0 +1,17 @@
+# dependencies
+node_modules/
+backend/.venv/
+__pycache__/
+*.pyc
+
+# build output
+dist/
+release/
+
+# scoring batches — regenerated on demand, can be large
+backend/.scoring/
+
+# local editor / OS
+.vscode/
+.DS_Store
+Thumbs.db

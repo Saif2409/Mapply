@@ -1,0 +1,12 @@
+fastapi
+uvicorn[standard]
+pyyaml
+httpx
+curl_cffi
+numpy
+pandas
+python-jobspy
+beautifulsoup4
+markdownify
+regex
+requests
