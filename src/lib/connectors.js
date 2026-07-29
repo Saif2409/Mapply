@@ -56,7 +56,16 @@ export const CONNECTORS = [
     name: "Glassdoor",
     domain: ".glassdoor.com",
     loginUrl: "https://www.glassdoor.com/member/login",
-    note: "Blocks plain scrapers — sign in so jobs can be read in-app",
+    // Not scraped: every path returns a 403 bot challenge, including their API.
+    // Kept here so it opens signed in and you can browse it by hand.
+    note: "Browse only — blocks scrapers, so jobs aren't pulled in",
+  },
+  {
+    id: "gmail",
+    name: "Gmail",
+    domain: ".google.com",
+    loginUrl: "https://mail.google.com/",
+    note: "Opens a pre-addressed draft when you message a hiring manager",
   },
   {
     id: "emirates",

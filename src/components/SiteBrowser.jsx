@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { openExternal } from "../lib/api.js";
 import ApplyPanel from "./ApplyPanel.jsx";
+import OutreachPanel from "./OutreachPanel.jsx";
 
 /**
  * A real browser inside Mapply.
@@ -12,7 +13,15 @@ import ApplyPanel from "./ApplyPanel.jsx";
  *
  * Falls back to a message in the dev browser, where <webview> doesn't exist.
  */
-export default function SiteBrowser({ url, title, onClose, profile, job }) {
+export default function SiteBrowser({
+  url,
+  title,
+  onClose,
+  profile,
+  job,
+  panel = "apply",
+  contact,
+}) {
   const ref = useRef(null);
   const [current, setCurrent] = useState(url);
   const [loading, setLoading] = useState(true);
@@ -88,7 +97,7 @@ export default function SiteBrowser({ url, title, onClose, profile, job }) {
             onClick={() => setShowPanel((v) => !v)}
             title="Fill your details and reach your tailored documents"
           >
-            {showPanel ? "Hide helper" : "Apply helper"}
+            {showPanel ? "Hide panel" : panel === "outreach" ? "Your message" : "Apply helper"}
           </button>
         )}
         <button
@@ -127,12 +136,21 @@ export default function SiteBrowser({ url, title, onClose, profile, job }) {
         </div>
 
         {profile && embedded && showPanel && (
-          <ApplyPanel
-            profile={profile}
-            job={job}
-            webviewRef={ref}
-            onClose={() => setShowPanel(false)}
-          />
+          panel === "outreach" ? (
+            <OutreachPanel
+              profile={profile}
+              job={job}
+              contact={contact}
+              onClose={() => setShowPanel(false)}
+            />
+          ) : (
+            <ApplyPanel
+              profile={profile}
+              job={job}
+              webviewRef={ref}
+              onClose={() => setShowPanel(false)}
+            />
+          )
         )}
       </div>
     </div>

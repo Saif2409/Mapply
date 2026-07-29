@@ -71,6 +71,14 @@ export const api = {
     }),
   jobFiles: (name, jid) =>
     request(`/api/profiles/${encodeURIComponent(name)}/jobs/${jid}/files`),
+  // Raw text of a generated file (outreach.md, cover_letter.md) rather than JSON.
+  jobFileText: async (name, jid, filename) => {
+    const res = await fetch(
+      `${BASE}/api/profiles/${encodeURIComponent(name)}/jobs/${jid}/files/${encodeURIComponent(filename)}`
+    );
+    if (!res.ok) throw new Error(`Couldn't read ${filename}`);
+    return res.text();
+  },
   fileUrl: (name, jid, filename, download = false) =>
     `${BASE}/api/profiles/${encodeURIComponent(name)}/jobs/${jid}/files/${encodeURIComponent(filename)}${download ? "?download=true" : ""}`,
   hiringManager: (name, jid) =>

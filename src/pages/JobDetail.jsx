@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { useNavigate, useParams } from "react-router-dom";
 import { api, openExternal } from "../lib/api.js";
+import SiteBrowser from "../components/SiteBrowser.jsx";
+import { outreachTarget, parseOutreach } from "../lib/outreach.js";
 
 const SOURCE_LABELS = {
   indeed: "Indeed", linkedin: "LinkedIn", bayt: "Bayt", google: "Google Jobs",
@@ -40,6 +42,7 @@ export default function JobDetail({ profile }) {
   const [manager, setManager] = useState(null);
   const [notes, setNotes] = useState("");
   const [files, setFiles] = useState([]);
+  const [outreach, setOutreach] = useState(null);
 
   useEffect(() => {
     api.jobs(profile.id).then((all) => {
@@ -62,8 +65,34 @@ export default function JobDetail({ profile }) {
   const setStatus = (status) =>
     api.patchJob(profile.id, job.id, { status }).then((j) => setJob(j)).catch(() => {});
 
+  /* Email contact -> a Gmail draft already addressed and written.
+     LinkedIn only -> their profile, with the note ready to paste. Either way the
+     drafted message sits in the side panel and the user sends it themselves. */
+  const messageContact = async () => {
+    const contact = job.hiring_manager || {};
+    let draft = {};
+    try {
+      const { files: fs } = await api.jobFiles(profile.id, job.id);
+      const f = (fs || []).find((x) => /outreach/i.test(x.name) && /md/i.test(x.format));
+      if (f) draft = parseOutreach(await api.jobFileText(profile.id, job.id, f.name));
+    } catch {}
+    const target = outreachTarget(contact, draft);
+    if (target) setOutreach({ url: target.url, contact });
+  };
+
   return (
     <div className="p-10 max-w-4xl mx-auto">
+      {outreach && (
+        <SiteBrowser
+          url={outreach.url}
+          title={`Message ${outreach.contact?.name || "hiring manager"}`}
+          profile={profile}
+          job={job}
+          panel="outreach"
+          contact={outreach.contact}
+          onClose={() => setOutreach(null)}
+        />
+      )}
       <button className="text-sm text-mist-dim hover:text-mist-bright mb-4" onClick={() => navigate("/jobs")}>
         ← Back to jobs
       </button>
@@ -177,26 +206,24 @@ export default function JobDetail({ profile }) {
             {job.hiring_manager.title ? ` — ${job.hiring_manager.title}` : ""}
           </div>
           <div className="flex gap-2 mt-3">
+            <button
+              className="btn-primary !py-1.5 text-xs"
+              title={
+                job.hiring_manager.email
+                  ? "Opens a pre-addressed Gmail draft with your message alongside"
+                  : "Opens their LinkedIn profile with your drafted note alongside"
+              }
+              onClick={messageContact}
+              disabled={!job.hiring_manager.email && !job.hiring_manager.profile_url}
+            >
+              Message hiring manager
+            </button>
             {job.hiring_manager.profile_url && (
               <button
                 className="btn-ghost !py-1.5 text-xs"
                 onClick={() => openExternal(job.hiring_manager.profile_url)}
               >
-                Open LinkedIn ↗
-              </button>
-            )}
-            {job.hiring_manager.email && (
-              <button
-                className="btn-ghost !py-1.5 text-xs"
-                onClick={() =>
-                  openExternal(
-                    `mailto:${job.hiring_manager.email}?subject=${encodeURIComponent(
-                      `Application — ${job.title}`
-                    )}`
-                  )
-                }
-              >
-                Email ↗
+                Open externally ↗
               </button>
             )}
           </div>
