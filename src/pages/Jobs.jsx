@@ -330,17 +330,27 @@ export default function Jobs({ profile }) {
   const [lastRemoved, setLastRemoved] = useState(null);
   const [limit, setLimit] = useState(PAGE);
   const [browseTarget, setBrowseTarget] = useState(null);
+  const [loadError, setLoadError] = useState(null);
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
   const pollRef = useRef(null);
   const scorePollRef = useRef(null);
 
+  // A swallowed failure here is what made the page look like it had no jobs at
+  // all, so the error is kept and shown.
   const loadJobs = useCallback(
-    () => api.jobs(profile.id).then(setJobs).catch(() => {}),
+    () =>
+      api
+        .jobs(profile.id)
+        .then((j) => {
+          setJobs(j);
+          setLoadError(null);
+        })
+        .catch((e) => setLoadError(e.message || "Couldn't load jobs")),
     [profile.id]
   );
 
-  useJobsSync(profile.id, loadJobs);
+  useJobsSync(profile.id, loadJobs, jobs.length === 0);
 
   const pollScan = useCallback(async () => {
     try {
@@ -706,7 +716,18 @@ export default function Jobs({ profile }) {
         )}
 
         {/* list */}
-        {shown.length === 0 ? (
+        {loadError ? (
+          <div className="card p-8 text-center">
+            <div className="text-bad font-medium">Couldn't load your jobs</div>
+            <div className="text-sm mt-1" style={{ color: "var(--text-mid)" }}>
+              The backend may still be starting — this retries on its own.
+            </div>
+            <div className="text-xs mt-1" style={{ color: "var(--text-dim)" }}>{loadError}</div>
+            <button className="btn-ghost mt-4" onClick={loadJobs}>
+              Retry now
+            </button>
+          </div>
+        ) : shown.length === 0 ? (
           <div className="card p-12 text-center text-mist-dim">
             <div className="text-4xl mb-3">▤</div>
             No jobs yet — hit <span className="text-royal-light font-medium">Find Jobs</span> to scan

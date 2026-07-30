@@ -13,7 +13,13 @@ import { api } from "./api.js";
  * The effect of that: jobs Claude scores show up on their own, and jobs it
  * tailors disappear from the Jobs page into the Tracker — without restarting.
  */
-export function useJobsSync(profileId, reload, intervalMs = 4000) {
+/**
+ * @param needsData pass true when the page currently has nothing to show. The
+ *   fingerprint alone can't recover a failed first load: it never changes, so a
+ *   page whose initial fetch lost the race with a slow backend start would stay
+ *   empty until you navigated away and back.
+ */
+export function useJobsSync(profileId, reload, needsData = false, intervalMs = 4000) {
   useEffect(() => {
     let stopped = false;
     let timer = null;
@@ -23,9 +29,12 @@ export function useJobsSync(profileId, reload, intervalMs = 4000) {
       try {
         const rev = await api.jobsRevision(profileId);
         const key = `${rev.count}:${rev.mtime}`;
-        // Skip the first reading: it establishes the baseline, and reloading on
-        // it would just repeat the fetch the page already did on mount.
-        if (last !== null && key !== last) await reload();
+        // Reload when something changed, or when we have nothing yet but the
+        // store says there is something to show.
+        const recovering = needsData && rev.count > 0;
+        // Skip the first reading otherwise: it establishes the baseline, and
+        // reloading on it would just repeat the fetch the page did on mount.
+        if (recovering || (last !== null && key !== last)) await reload();
         last = key;
       } catch {}
       if (!stopped) timer = setTimeout(tick, intervalMs);
@@ -36,5 +45,5 @@ export function useJobsSync(profileId, reload, intervalMs = 4000) {
       stopped = true;
       clearTimeout(timer);
     };
-  }, [profileId, reload, intervalMs]);
+  }, [profileId, reload, needsData, intervalMs]);
 }

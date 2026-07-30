@@ -5,15 +5,20 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** Connection refused on a read — the backend is still booting, not broken.
  *  Only reads are retried: a failed connect means the request never landed,
- *  but we still don't want to gamble on replaying a POST/PATCH. */
-async function fetchWithBoot(url, options, attempts = 24) {
+ *  but we still don't want to gamble on replaying a POST/PATCH.
+ *
+ *  The budget has to cover a genuinely slow cold start. A fixed 12s was not
+ *  enough — after a rebuild, Defender rescans the binaries and Python has taken
+ *  ~18s to answer, which left pages permanently empty. Short waits first so a
+ *  normal start still feels instant, then back off. */
+async function fetchWithBoot(url, options, attempts = 45) {
   const method = (options.method || "GET").toUpperCase();
   for (let i = 0; ; i++) {
     try {
       return await fetch(url, options);
     } catch (e) {
       if (method !== "GET" || i >= attempts) throw e;
-      await sleep(500);
+      await sleep(i < 10 ? 400 : 1500);
     }
   }
 }

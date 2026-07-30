@@ -52,7 +52,7 @@ export default function Dashboard({ profile }) {
         <div className="relative">
           <h2 className="text-xl font-semibold">Scan the UAE job market</h2>
           <p className="text-mist-dim text-sm mt-1 max-w-md">
-            Searches Indeed, LinkedIn, Bayt, GulfTalent, NaukriGulf, Google Jobs and your
+            Searches Indeed, LinkedIn, Bayt, GulfTalent, NaukriGulf, Tanqeeb, Google Jobs and your
             watchlist companies — new postings land in your Jobs list.
           </p>
         </div>
@@ -87,9 +87,9 @@ export default function Dashboard({ profile }) {
         <ol className="grid grid-cols-4 gap-4 text-sm">
           {[
             ["1. Find", "Scrape every UAE source in one click."],
-            ["2. Score", "Local AI rates your chance /100 per job."],
+            ["2. Score", "Claude rates your real chance /100 per job."],
             ["3. Tailor", "Claude picks your best bullets & builds the CV."],
-            ["4. Apply", "One click to the posting with your files ready."],
+            ["4. Apply", "Opens signed in, details filled, files ready to drag."],
           ].map(([t, d]) => (
             <li key={t} className="bg-ink-900/60 rounded-xl p-4 border border-ink-700/50">
               <div className="font-semibold text-royal-light">{t}</div>

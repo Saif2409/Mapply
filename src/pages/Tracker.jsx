@@ -40,7 +40,7 @@ export default function Tracker({ profile }) {
   }, [load]);
 
   // Packets Claude tailors land straight in this board.
-  useJobsSync(profile.id, load);
+  useJobsSync(profile.id, load, jobs.length === 0);
 
   const move = async (job, status) => {
     await api.patchJob(profile.id, job.id, { status }).catch(() => {});
