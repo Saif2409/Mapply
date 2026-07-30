@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api, openExternal } from "../lib/api.js";
@@ -325,6 +325,23 @@ const JobRow = memo(function JobRow({
 // the DOM at once is what made the page sluggish before the cap.
 const PAGE = 100;
 
+/**
+ * Where the user was on the Jobs page, kept outside React.
+ *
+ * Opening a job unmounts this page, so without this you come back to the top of
+ * an unfiltered first page — losing your scroll, your filter, and every "Show
+ * more" you clicked. Module scope rather than state: it has to survive the
+ * unmount, and it should reset when the app restarts.
+ */
+const view = {
+  profile: null,
+  scrollTop: 0,
+  limit: PAGE,
+  filter: "",
+  sort: "score",
+  onlyScored: false,
+};
+
 export default function Jobs({ profile }) {
   const [jobs, setJobs] = useState([]);
   const [scan, setScan] = useState(null);
@@ -335,13 +352,15 @@ export default function Jobs({ profile }) {
   const [managerHandoff, setManagerHandoff] = useState(null);
   const [scoreHandoff, setScoreHandoff] = useState(false);
   const [tailorBatch, setTailorBatch] = useState(false);
-  const [sort, setSort] = useState("score");
-  const [filter, setFilter] = useState("");
-  const [onlyScored, setOnlyScored] = useState(false);
+  // Restore what the user was looking at, but only for the same profile.
+  const restore = view.profile === profile.id;
+  const [sort, setSort] = useState(restore ? view.sort : "score");
+  const [filter, setFilter] = useState(restore ? view.filter : "");
+  const [onlyScored, setOnlyScored] = useState(restore ? view.onlyScored : false);
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState(() => new Set());
   const [lastRemoved, setLastRemoved] = useState(null);
-  const [limit, setLimit] = useState(PAGE);
+  const [limit, setLimit] = useState(restore ? view.limit : PAGE);
   const [browseTarget, setBrowseTarget] = useState(null);
   const [loadError, setLoadError] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -543,8 +562,63 @@ export default function Jobs({ profile }) {
   // Only a page of rows goes into the DOM; the rest is one click away.
   const visible = useMemo(() => shown.slice(0, limit), [shown, limit]);
 
-  // Changing what's listed should start from the top again.
-  useEffect(() => setLimit(PAGE), [sort, filter, onlyScored]);
+  // Changing what's listed should start from the top again — but not on mount,
+  // which would throw away a restored position. Compare the actual values
+  // rather than tracking "is this the first run": StrictMode invokes effects
+  // twice on mount, so a first-run flag is already false on the second pass and
+  // the reset fires anyway.
+  const prevQuery = useRef({ sort, filter, onlyScored });
+  useEffect(() => {
+    const p = prevQuery.current;
+    if (p.sort === sort && p.filter === filter && p.onlyScored === onlyScored) return;
+    prevQuery.current = { sort, filter, onlyScored };
+    setLimit(PAGE);
+    const el = document.querySelector("main");
+    if (el) el.scrollTop = 0;
+  }, [sort, filter, onlyScored]);
+
+  // Record the position as it changes rather than on unmount. Saving in a
+  // cleanup looked right but failed twice over: StrictMode mounts, unmounts and
+  // remounts in development, so the cleanup overwrote the saved position with
+  // zeros the moment the page opened; and in production a passive cleanup can
+  // run after the rows are already detached, by which point the browser has
+  // clamped scrollTop to 0.
+  useEffect(() => {
+    view.profile = profile.id;
+    view.limit = limit;
+    view.filter = filter;
+    view.sort = sort;
+    view.onlyScored = onlyScored;
+  }, [profile.id, limit, filter, sort, onlyScored]);
+
+  useEffect(() => {
+    const el = document.querySelector("main");
+    if (!el) return;
+    const onScroll = () => {
+      // Navigating away removes the rows, the container collapses, and the
+      // browser clamps scrollTop to 0 — firing one last scroll event that would
+      // otherwise overwrite the position we're trying to keep. Ignore readings
+      // taken once the list is no longer long enough to scroll.
+      if (el.scrollHeight <= el.clientHeight * 1.5) return;
+      view.profile = profile.id;
+      view.scrollTop = el.scrollTop;
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, [profile.id]);
+
+  // Put the scroll back once the rows that were under it actually exist.
+  // useLayoutEffect so it lands before paint instead of visibly jumping.
+  const restored = useRef(!restore);
+  useLayoutEffect(() => {
+    if (restored.current || loading || visible.length === 0) return;
+    const el = document.querySelector("main");
+    if (!el || !view.scrollTop) return;
+    // The list may still be growing; only settle once it can hold the offset.
+    if (el.scrollHeight < view.scrollTop + el.clientHeight) return;
+    el.scrollTop = view.scrollTop;
+    restored.current = true;
+  }, [loading, visible.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="p-10 max-w-6xl mx-auto">

@@ -252,6 +252,40 @@ def gulftalent(search_term: str, limit: int = 60, pages: int = 3):
 TANQEEB_CARD = re.compile(r'<article id="JOB-[^"]+" data-id="(?P<id>\d+)"(?P<rest>.*?)</article>', re.S)
 
 
+def tanqeeb_detail(url: str) -> dict | None:
+    """Full posting from a Tanqeeb job page.
+
+    The search cards carry no description at all, which leaves nothing to score
+    on. The detail page embeds a complete schema.org JobPosting — real employer
+    (the card often shows the recruiter), exact date, the description, and
+    validThrough, which is the application deadline.
+    """
+    r = _get(url)
+    if not r:
+        return None
+    for d in _ld_blocks(r.text):
+        if not (isinstance(d, dict) and d.get("@type") == "JobPosting"):
+            continue
+        org = d.get("hiringOrganization") or {}
+        loc = d.get("jobLocation") or {}
+        if isinstance(loc, list):
+            loc = loc[0] if loc else {}
+        addr = (loc or {}).get("address") or {}
+        city = ", ".join(
+            x for x in [addr.get("addressLocality"), addr.get("addressRegion")] if x
+        )
+        return {
+            "title": d.get("title"),
+            "company": (org.get("name") if isinstance(org, dict) else org) or None,
+            "posted_date": parse_iso_date(d.get("datePosted")),
+            "closes": parse_iso_date(d.get("validThrough")),
+            "location": city or None,
+            "description": _txt(str(d.get("description") or ""))[:20000],
+            "employment_type": d.get("employmentType"),
+        }
+    return None
+
+
 def tanqeeb(search_term: str, limit: int = 120, pages: int = 4):
     seen_urls = set()
     count = 0
@@ -263,18 +297,32 @@ def tanqeeb(search_term: str, limit: int = 120, pages: int = 4):
         r = _get(url)
         if not r:
             return
-        got = 0
-        for job in _tanqeeb_page(r.text):
-            if job["url"] in seen_urls:
-                continue
-            seen_urls.add(job["url"])
-            got += 1
+        cards = [j for j in _tanqeeb_page(r.text) if j["url"] not in seen_urls]
+        for j in cards:
+            seen_urls.add(j["url"])
+        if not cards:
+            return
+
+        # Cards have no description, so each detail page is fetched. Done in
+        # parallel because it is one request per job.
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            details = list(pool.map(lambda j: tanqeeb_detail(j["url"]), cards))
+
+        for job, det in zip(cards, details):
+            if det:
+                job["description"] = det["description"] or ""
+                job["title"] = det["title"] or job["title"]
+                # the card usually names the recruiter; the posting names the employer
+                if det["company"]:
+                    job["company"] = det["company"]
+                if det["posted_date"]:
+                    job["posted_date"] = det["posted_date"]
+                if det["closes"]:
+                    job["closes"] = det["closes"]
             count += 1
             yield job
             if count >= limit:
                 return
-        if got == 0:
-            return
 
 
 def _tanqeeb_page(html: str):
