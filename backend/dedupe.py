@@ -7,6 +7,7 @@ Merge rule: keep the richest copy — a scored one beats an unscored one, a long
 description beats a shorter one, an earlier scrape date wins ties.
 """
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -99,8 +100,64 @@ def dedupe_profile(profile: str, apply: bool = False) -> dict:
         if keep_path.name != target.name:
             renamed += 1
 
+    removed += _dedupe_by_url(folder, tailored_root, apply)
+
     return {"groups": len(groups), "removed": removed,
             "renamed": renamed, "id_retagged": retagged}
+
+
+def _norm_title(t: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", (t or "").lower())
+
+
+def _dedupe_by_url(folder: Path, tailored_root: Path, apply: bool) -> int:
+    """Second pass: same apply link AND same title means the same job.
+
+    The company+title key can't catch these. Bayt lists a role twice — once under
+    the recruitment agency and once under the direct employer — so the company
+    differs while the posting is identical. Verified against the source page: the
+    parser reads both correctly, the two attributions are Bayt's own.
+
+    The title must match too. Emirates and Oracle put genuinely different
+    vacancies behind one generic application URL, and collapsing those would lose
+    real jobs.
+    """
+    groups: dict[tuple, list[tuple[Path, dict, bool]]] = {}
+
+    for f in folder.glob("*.json"):
+        try:
+            job = json.loads(f.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        url = (job.get("url") or "").strip().rstrip("/")
+        if url:
+            groups.setdefault((url, _norm_title(job.get("title"))), []).append((f, job, False))
+
+    if tailored_root.exists():
+        for d in tailored_root.iterdir():
+            jf = d / "job.json"
+            if not (d.is_dir() and jf.exists()):
+                continue
+            try:
+                job = json.loads(jf.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            url = (job.get("url") or "").strip().rstrip("/")
+            if url:
+                groups.setdefault((url, _norm_title(job.get("title"))), []).append((jf, job, True))
+
+    removed = 0
+    for entries in groups.values():
+        if len(entries) < 2:
+            continue
+        entries.sort(key=lambda e: (e[2], richness(e[1])), reverse=True)
+        for path, _, is_tailored in entries[1:]:
+            if is_tailored:
+                continue                      # never delete a tailored packet
+            if apply:
+                path.unlink(missing_ok=True)
+            removed += 1
+    return removed
 
 
 if __name__ == "__main__":
