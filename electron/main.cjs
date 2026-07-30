@@ -169,18 +169,18 @@ async function logCookieInventory(tag) {
   } catch {}
 }
 
-/** Connected = this domain holds a durable, httpOnly cookie.
+/** Is this site signed in?
  *
- *  Earlier versions guessed at session cookie NAMES, which silently failed:
- *  LinkedIn's session cookie is `li_at`, matching none of the usual
- *  sess/auth/token patterns. Signing in is what sets httpOnly cookies with an
- *  expiry — analytics and consent cookies a logged-out visit drops are
- *  script-readable — so that is the signal, and it needs no per-site knowledge.
+ *  Where the site's real session cookie is known (LinkedIn's `li_at`) that is
+ *  the test, and it must not have expired. Otherwise fall back to "holds a
+ *  durable httpOnly cookie" — a hint rather than proof, since ad and
+ *  bot-protection cookies are httpOnly too and a site you merely browsed can
+ *  read as connected.
  *
- *  Values are never read; only name, flags and domain. */
-ipcMain.handle("connector-status", async (_e, domains) => {
+ *  Values are never read; only name, flags, expiry and domain. */
+ipcMain.handle("connector-status", async (_e, sites) => {
   const out = {};
-  if (!Array.isArray(domains)) return out;
+  if (!Array.isArray(sites)) return out;
 
   // One read, then match locally: the `domain` filter is fussy about leading
   // dots and subdomains, which is the other half of why this used to under-report.
@@ -189,15 +189,25 @@ ipcMain.handle("connector-status", async (_e, domains) => {
     all = await jobSession().cookies.get({});
   } catch {}
 
-  for (const d of domains) {
+  const nowSec = Date.now() / 1000;
+  const live = (c) => !c.expirationDate || c.expirationDate > nowSec;
+
+  for (const site of sites) {
+    // a plain domain string is still accepted, so an older renderer keeps working
+    const d = typeof site === "string" ? site : site.domain;
+    const wanted = (typeof site === "string" ? null : site.sessionCookie) || null;
     const bare = d.replace(/^\./, "").toLowerCase();
+
     const mine = all.filter((c) => {
       const host = (c.domain || "").replace(/^\./, "").toLowerCase();
       return host === bare || host.endsWith("." + bare);
     });
+
     out[d] = {
       cookies: mine.length,
-      connected: mine.some((c) => c.httpOnly && c.expirationDate),
+      connected: wanted
+        ? mine.some((c) => wanted.includes(c.name) && live(c))
+        : mine.some((c) => c.httpOnly && c.expirationDate && live(c)),
     };
   }
 
@@ -280,11 +290,37 @@ app.whenReady().then(async () => {
   }
   startWatchdog();
   logCookieInventory("app start");
+  startCookieFlush();
 });
 
-app.on("window-all-closed", () => {
+/**
+ * Chromium keeps cookies in memory and writes them out on its own schedule, so a
+ * session created minutes before a crash, a forced quit or a machine restart can
+ * be lost — which looks like the app silently signing you out. Flushing on a
+ * timer, and again on the way out, makes a connection durable.
+ */
+let cookieFlush = null;
+function startCookieFlush() {
+  if (cookieFlush) return;
+  cookieFlush = setInterval(() => {
+    jobSession().cookies.flushStore().catch(() => {});
+  }, 60_000);
+}
+
+async function flushCookiesNow() {
+  try {
+    await jobSession().cookies.flushStore();
+  } catch {}
+}
+
+// Covers the ordinary quit and the "closed the last window" path.
+app.on("before-quit", flushCookiesNow);
+
+app.on("window-all-closed", async () => {
   quitting = true;
   if (watchdog) clearInterval(watchdog);
+  if (cookieFlush) clearInterval(cookieFlush);
+  await flushCookiesNow();          // don't lose a sign-in made this session
   if (backendProc) try { backendProc.kill(); } catch {}
   app.quit();
 });

@@ -52,13 +52,15 @@ function ScanPanel({ scan }) {
           {scan.totals?.new ?? 0} new · {scan.totals?.duplicates ?? 0} duplicates
         </div>
       </div>
-      <div className="grid grid-cols-4 gap-2">
+      <div className="grid grid-cols-3 gap-2">
         {entries.map(([src, st]) => (
           <div key={src} className="bg-ink-900/70 rounded-lg px-3 py-2 border border-ink-700/50 text-sm">
             <div className="flex items-center justify-between">
               <span className="font-medium">{SOURCE_LABELS[src] ?? src}</span>
               <span>
-                {st.status === "pending" && <span className="text-mist-dim">…</span>}
+                {st.status === "pending" && (
+                  <span className="inline-block w-2 h-2 rounded-full bg-mist-dim/50 animate-pulse" />
+                )}
                 {st.status === "running" && (
                   <span className="inline-block w-3 h-3 rounded-full border-2 border-royal border-t-transparent animate-spin" />
                 )}
@@ -66,8 +68,19 @@ function ScanPanel({ scan }) {
                 {st.status === "error" && <span className="text-bad" title={st.error}>✕</span>}
               </span>
             </div>
+            {/* Counts stay at zero for the first several seconds while a source
+                opens its connection, which read as "nothing is happening". Say
+                what it's doing instead. */}
             <div className="text-[11px] text-mist-dim mt-0.5">
-              {st.new} new{st.found ? ` / ${st.found} found` : ""}
+              {st.status === "pending"
+                ? "queued…"
+                : st.status === "error"
+                ? "failed"
+                : st.found || st.new
+                ? `${st.new} new${st.found ? ` / ${st.found} found` : ""}`
+                : st.status === "running"
+                ? "searching…"
+                : "nothing new"}
             </div>
           </div>
         ))}
@@ -331,6 +344,7 @@ export default function Jobs({ profile }) {
   const [limit, setLimit] = useState(PAGE);
   const [browseTarget, setBrowseTarget] = useState(null);
   const [loadError, setLoadError] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
   const pollRef = useRef(null);
@@ -341,12 +355,13 @@ export default function Jobs({ profile }) {
   const loadJobs = useCallback(
     () =>
       api
-        .jobs(profile.id)
+        .jobs(profile.id, { summary: true })
         .then((j) => {
           setJobs(j);
           setLoadError(null);
         })
-        .catch((e) => setLoadError(e.message || "Couldn't load jobs")),
+        .catch((e) => setLoadError(e.message || "Couldn't load jobs"))
+        .finally(() => setLoading(false)),
     [profile.id]
   );
 
@@ -716,7 +731,28 @@ export default function Jobs({ profile }) {
         )}
 
         {/* list */}
-        {loadError ? (
+        {loading ? (
+          /* Skeleton rows rather than a spinner: the list keeps its shape, so the
+             page doesn't jump when the real jobs arrive. */
+          <div className="space-y-2">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <div
+                key={i}
+                className="card !rounded-xl px-5 py-4 animate-pulse"
+                style={{ animationDelay: `${i * 60}ms` }}
+              >
+                <div className="flex items-center gap-4">
+                  <div className="min-w-0 flex-1">
+                    <div className="h-3.5 rounded bg-ink-700/70" style={{ width: `${45 + ((i * 7) % 30)}%` }} />
+                    <div className="h-2.5 rounded bg-ink-700/40 mt-2" style={{ width: `${30 + ((i * 11) % 25)}%` }} />
+                  </div>
+                  <div className="h-6 w-16 rounded-full bg-ink-700/60 shrink-0" />
+                  <div className="h-8 w-20 rounded-lg bg-ink-700/40 shrink-0" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : loadError ? (
           <div className="card p-8 text-center">
             <div className="text-bad font-medium">Couldn't load your jobs</div>
             <div className="text-sm mt-1" style={{ color: "var(--text-mid)" }}>

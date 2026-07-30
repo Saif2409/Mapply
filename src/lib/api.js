@@ -44,7 +44,11 @@ export const api = {
   createProfile: (name) =>
     request("/api/profiles", { method: "POST", body: JSON.stringify({ name }) }),
   master: (name) => request(`/api/profiles/${encodeURIComponent(name)}/master`),
-  jobs: (name) => request(`/api/profiles/${encodeURIComponent(name)}/jobs`),
+  // summary trims descriptions to what the list actually renders — the payload
+  // goes from ~11.5MB to ~4MB, which is the difference between the Jobs page
+  // appearing instantly and stalling for seconds.
+  jobs: (name, { summary = false } = {}) =>
+    request(`/api/profiles/${encodeURIComponent(name)}/jobs${summary ? "?summary=1" : ""}`),
   jobsRevision: (name) =>
     request(`/api/profiles/${encodeURIComponent(name)}/jobs/revision`),
   dismissJobs: (name, ids, restore = false) =>

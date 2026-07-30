@@ -96,11 +96,13 @@ def _run_scan(profile: str, search_terms: list[str]):
 
     tasks = {}
     with ThreadPoolExecutor(max_workers=9) as pool:
-        # JobSpy sites (Glassdoor excluded — it has no UAE coverage).
+        # JobSpy sites. Glassdoor has no UAE coverage; Google Jobs was dropped
+        # after repeatedly returning 0 new — everything it surfaced was already
+        # coming from Indeed or LinkedIn.
         # LinkedIn fetches each job description in a separate request and rate-limits
         # hard, so it gets the highest-signal terms only; the other boards take all.
         SITE_TERM_LIMIT = {"linkedin": 8}
-        for site in ["indeed", "linkedin", "google"]:
+        for site in ["indeed", "linkedin"]:
             def make(site=site):
                 def run():
                     for term in search_terms[: SITE_TERM_LIMIT.get(site, len(search_terms))]:
@@ -167,7 +169,7 @@ def start_scan(profile: str) -> dict:
         state = _blank_state()
         state["running"] = True
         state["started"] = datetime.now().isoformat(timespec="seconds")
-        sources = ["indeed", "linkedin", "google", "remote", "watchlist", "bigco",
+        sources = ["indeed", "linkedin", "remote", "watchlist", "bigco",
                    "bayt", "gulftalent", "naukrigulf", "tanqeeb"]
         state["sources"] = {s: {"status": "pending", "found": 0, "new": 0, "duplicates": 0, "error": None} for s in sources}
         _scans[profile] = state

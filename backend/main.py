@@ -2,9 +2,10 @@
 
 Run:  .venv/Scripts/python.exe -m uvicorn main:app --port 8710
 """
+import json
 from datetime import date
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -98,9 +99,38 @@ import jobs as jobs_mod
 import scan as scan_mod
 
 
+# The jobs list is thousands of records and descriptions are ~80% of the bytes,
+# while the list only ever renders the first few hundred characters of one. The
+# full text stays available from the job detail endpoint.
+SUMMARY_DESC_CHARS = 600
+
+# Serving the list means reading every job file (~1s for 4.6k). The page reloads
+# on navigation and whenever the watcher sees a change, so the same bytes get
+# rebuilt constantly. Cache the rendered JSON against the store's fingerprint —
+# the same cheap stat the UI polls — and rebuild only when something moves.
+_summary_cache: dict[str, tuple] = {}
+
+
 @app.get("/api/profiles/{name}/jobs")
-def get_jobs(name: str):
-    return jobs_mod.load_jobs(name)
+def get_jobs(name: str, summary: bool = False):
+    if not summary:
+        return jobs_mod.load_jobs(name)
+
+    rev = jobs_mod.revision(name)
+    key = (rev["count"], rev["mtime"])
+    hit = _summary_cache.get(name)
+    if hit and hit[0] == key:
+        return Response(content=hit[1], media_type="application/json")
+
+    # Build new dicts rather than truncating in place: the loaded rows must stay
+    # intact for every other caller.
+    rows = [
+        {**j, "description": (j.get("description") or "")[:SUMMARY_DESC_CHARS]}
+        for j in jobs_mod.load_jobs(name)
+    ]
+    body = json.dumps(rows, ensure_ascii=False)
+    _summary_cache[name] = (key, body)
+    return Response(content=body, media_type="application/json")
 
 
 @app.get("/api/profiles/{name}/jobs/revision")

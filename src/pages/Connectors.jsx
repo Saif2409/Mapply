@@ -55,7 +55,13 @@ export default function Connectors() {
     if (!window.mapply?.connectorStatus) return;
     setChecking(true);
     try {
-      setStatus(await window.mapply.connectorStatus(CONNECTORS.map((c) => c.domain)));
+      // Send the known session-cookie names so a site with a real sign-in marker
+      // isn't judged by the loose "any httpOnly cookie" fallback.
+      setStatus(
+        await window.mapply.connectorStatus(
+          CONNECTORS.map((c) => ({ domain: c.domain, sessionCookie: c.sessionCookie || null }))
+        )
+      );
     } catch {}
     setChecking(false);
   }, []);
@@ -81,7 +87,11 @@ export default function Connectors() {
   return (
     <div className="p-10 max-w-6xl mx-auto">
       {browsing && (
-        <SiteBrowser url={browsing.loginUrl} title={browsing.name} onClose={closeBrowser} />
+        <SiteBrowser
+          url={browsing.openUrl || browsing.loginUrl}
+          title={browsing.name}
+          onClose={closeBrowser}
+        />
       )}
 
       <div className="flex items-center justify-between">
@@ -129,7 +139,18 @@ export default function Connectors() {
                 <div className="text-xs text-mist-dim truncate mt-0.5">{c.note}</div>
               </div>
               <div className="flex gap-2 shrink-0">
-                <button className="btn-ghost !py-2 text-sm" onClick={() => setBrowsing(c)}>
+                <button
+                  className="btn-ghost !py-2 text-sm"
+                  /* Connected sites open at their home page. Sending a signed-in
+                     user to /login shows the sign-in form and looks like the
+                     session was lost. */
+                  onClick={() =>
+                    setBrowsing({
+                      ...c,
+                      openUrl: st.connected ? c.homeUrl || c.loginUrl : c.loginUrl,
+                    })
+                  }
+                >
                   {st.connected ? "Open" : "Connect"}
                 </button>
                 {st.connected && (
