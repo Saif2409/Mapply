@@ -8,6 +8,7 @@ Portals that require a login (Emirates Group's Avature, flydubai's iCIMS) are
 deliberately NOT scraped — those need an account, so the job boards remain the
 route for them.
 """
+import json
 import re
 from html import unescape
 
@@ -289,6 +290,125 @@ def _oracle_company(company: str, host: str, limit: int = 200):
             )
         if len(reqs) < 25:
             return
+
+
+def oracle_detail(url: str) -> dict | None:
+    """Full posting from an Oracle Recruiting job URL.
+
+    The listing feed carries titles only, so a job from FAB, Emirates NBD, Emaar
+    or DP World arrives with nothing to score on. The requisition-details
+    resource returns the body text.
+    """
+    m = re.search(r"https://([^/]+)/.*?/job/(\d+)", url)
+    if not m:
+        return None
+    host, rid = m.group(1), m.group(2)
+    site = re.search(r"/sites/([^/]+)/", url)
+    site_no = site.group(1) if site else "CX_1"
+    api = (
+        f"https://{host}/hcmRestApi/resources/latest/recruitingCEJobRequisitionDetails"
+        f'?expand=all&finder=ById;Id="{rid}",siteNumber={site_no}'
+    )
+    try:
+        r = cr.get(api, impersonate="chrome", timeout=25, headers={"Accept": "application/json"})
+        if r.status_code != 200:
+            return None
+        items = r.json().get("items") or []
+        if not items:
+            return None
+        it = items[0]
+    except Exception:
+        return None
+
+    body = " ".join(
+        str(it.get(k) or "")
+        for k in ("ExternalDescriptionStr", "ExternalResponsibilitiesStr", "ExternalQualificationsStr")
+    )
+    return {
+        "title": it.get("Title"),
+        "description": _clean_html(body)[:20000],
+        "posted_date": (it.get("ExternalPostedStartDate") or "")[:10] or None,
+    }
+
+
+SAP_MONTHS = {m: i + 1 for i, m in enumerate(
+    ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"])}
+
+
+def sap_detail(url: str) -> dict | None:
+    """SAP marks its postings up as schema.org microdata, not JSON-LD.
+
+    Worth knowing because a JSON-LD parser finds nothing here and reports the
+    page as empty even though the full ad is present as itemprop attributes.
+    """
+    try:
+        # the stored URL can carry an HTML-escaped ampersand
+        r = cr.get(url.replace("&amp;", "&"), impersonate="chrome", timeout=25)
+        if r.status_code != 200:
+            return None
+    except Exception:
+        return None
+    t = r.text
+    if "schema.org/JobPosting" not in t:
+        return None
+
+    dm = re.search(r'itemprop="description"[^>]*>(.*?)</div>', t, re.S)
+    if not dm:
+        return None
+    title = re.search(r'itemprop="title"[^>]*>([^<]{2,200})<', t)
+
+    # dates come as "Thu Jul 09 02:00:00 UTC 2026"
+    posted = None
+    pm = re.search(r'itemprop="datePosted"[^>]*>\s*\w{3}\s+(\w{3})\s+(\d{1,2})[^<]*?(\d{4})', t)
+    if pm and pm.group(1) in SAP_MONTHS:
+        posted = f"{pm.group(3)}-{SAP_MONTHS[pm.group(1)]:02d}-{int(pm.group(2)):02d}"
+
+    return {
+        "title": unescape(title.group(1).strip()) if title else None,
+        "description": _clean_html(dm.group(1))[:20000],
+        "posted_date": posted,
+    }
+
+
+def smartrecruiters_detail(url: str) -> dict | None:
+    """SmartRecruiters publishes each posting through a documented API.
+
+    Covers Etihad and every other employer hosted there. The ad is split across
+    sections, so they're joined in the order a reader would meet them.
+    """
+    m = re.search(r"smartrecruiters\.com/([^/]+)/(\d+)", url)
+    if not m:
+        return None
+    company, posting = m.group(1), m.group(2)
+    try:
+        r = cr.get(
+            f"https://api.smartrecruiters.com/v1/companies/{company}/postings/{posting}",
+            impersonate="chrome",
+            timeout=25,
+            headers={"Accept": "application/json"},
+        )
+        if r.status_code != 200:
+            return None
+        d = r.json()
+    except Exception:
+        return None
+
+    sections = ((d.get("jobAd") or {}).get("sections") or {})
+    order = ("jobDescription", "qualifications", "additionalInformation", "companyDescription")
+    body = " ".join(
+        str((sections.get(k) or {}).get("text") or "") for k in order
+    )
+    return {
+        "title": d.get("name"),
+        "company": (d.get("company") or {}).get("name"),
+        "description": _clean_html(body)[:20000],
+        "posted_date": (d.get("releasedDate") or "")[:10] or None,
+    }
+
+
+def _clean_html(s: str) -> str:
+    s = re.sub(r"<[^>]+>", " ", s or "")
+    return re.sub(r"\s+", " ", unescape(s)).strip()
 
 
 def oracle_employers(search_term: str = "", limit: int = 200):

@@ -379,6 +379,60 @@ def naukrigulf(search_term: str, limit: int = 150):
             return
 
 
+def naukrigulf_index(search_terms, limit_per_term: int = 150) -> dict:
+    """url -> the richest fields NaukriGulf's search API exposes.
+
+    There is no per-job endpoint and the job page is rendered client-side — it
+    serves "JavaScript is disabled" to any HTTP client — so a posting can only be
+    re-read by searching for it again. Built once and shared across a backfill
+    rather than per job.
+    """
+    out = {}
+    for term in search_terms:
+        for offset in range(0, limit_per_term, 50):
+            url = (
+                "https://www.naukrigulf.com/spapi/jobapi/search"
+                f"?Keywords={quote(term)}&Location=uae&Limit=50&Offset={offset}"
+            )
+            r = _get(url, headers={"appid": "205", "systemid": "2323",
+                                   "Accept": "application/json"})
+            if not r:
+                break
+            try:
+                data = r.json()
+            except Exception:
+                break
+            rows = data.get("Jobs") or data.get("jobs") or []
+            if not rows:
+                break
+            for entry in rows:
+                j = entry.get("Job") if isinstance(entry, dict) and "Job" in entry else entry
+                if not isinstance(j, dict):
+                    continue
+                link = j.get("JdURL") or j.get("jdURL") or ""
+                if link.startswith("/"):
+                    link = f"https://www.naukrigulf.com{link}"
+                if not link:
+                    continue
+
+                # The blurb is often empty, but the keyword list and the stated
+                # experience band are real signal — enough to judge a role on.
+                bits = []
+                info = _txt(j.get("jobInfo") or j.get("Description") or "")
+                if info:
+                    bits.append(info)
+                kw = j.get("keywords") or j.get("Whitelistedkeywords") or ""
+                if kw:
+                    bits.append("Skills: " + ", ".join(
+                        k.strip() for k in str(kw).split(",") if k.strip())[:600])
+                exp = j.get("Experience") or {}
+                if isinstance(exp, dict) and (exp.get("Min") or exp.get("Max")):
+                    bits.append(f"Experience required: {exp.get('Min','?')}-{exp.get('Max','?')} years")
+                if bits:
+                    out[link.rstrip("/")] = {"description": " | ".join(bits)}
+    return out
+
+
 def _naukrigulf_page(search_term: str, page_size: int, offset: int):
     url = (
         "https://www.naukrigulf.com/spapi/jobapi/search"

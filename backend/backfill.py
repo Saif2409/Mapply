@@ -21,12 +21,35 @@ from paths import JOBS_FOUND, profile_dir
 # source -> callable(url) returning a dict of fields to merge, or None
 FETCHERS = {}
 
+# Sources with no per-job endpoint: the whole search has to be replayed once and
+# the results matched back by URL.
+INDEXED = {"naukrigulf"}
+
+
+def _from_index(profile: str, source: str, targets) -> list:
+    """Re-run the site's search and match its results to the stored jobs."""
+    import profiles as profiles_mod
+    from sources import gulf
+
+    criteria = profiles_mod.read_yaml(profile, "target_criteria.yaml") or {}
+    roles = criteria.get("roles") or {}
+    terms = list(dict.fromkeys((roles.get("primary") or []) + (roles.get("secondary") or [])))
+
+    index = gulf.naukrigulf_index(terms) if source == "naukrigulf" else {}
+    return [index.get((job.get("url") or "").rstrip("/")) for _, job in targets]
+
 
 def _load_fetchers():
-    from sources import gulf
+    from sources import bigco, gulf
 
     FETCHERS["tanqeeb"] = gulf.tanqeeb_detail
     FETCHERS["gulftalent"] = gulf._gulftalent_detail
+    FETCHERS["oracle"] = bigco.oracle_detail
+    FETCHERS["sap"] = bigco.sap_detail
+    # Etihad is hosted on SmartRecruiters, as is talabat via DeliveryHero
+    FETCHERS["etihad"] = bigco.smartrecruiters_detail
+    FETCHERS["smartrecruiters"] = bigco.smartrecruiters_detail
+    FETCHERS["naukrigulf"] = lambda _url: None   # handled via the search index
 
 
 def needs_backfill(job: dict) -> bool:
@@ -55,8 +78,11 @@ def backfill(profile: str, source: str, limit: int | None = None,
     if dry_run:
         return {"source": source, "would_fetch": len(targets)}
 
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        details = list(pool.map(lambda t: fetch(t[1]["url"]), targets))
+    if source in INDEXED:
+        details = _from_index(profile, source, targets)
+    else:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            details = list(pool.map(lambda t: fetch(t[1]["url"]), targets))
 
     updated = failed = 0
     for (path, job), det in zip(targets, details):
