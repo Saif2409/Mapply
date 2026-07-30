@@ -151,6 +151,21 @@ def _dedupe_by_url(folder: Path, tailored_root: Path, apply: bool) -> int:
         if len(entries) < 2:
             continue
         entries.sort(key=lambda e: (e[2], richness(e[1])), reverse=True)
+        keep_path, keep_job, _ = entries[0]
+
+        # Richness says nothing about which company is right, and picking wrong
+        # here is not cosmetic: a CV tailored to the wrong employer gets sent.
+        # When the copies disagree, ask the posting itself.
+        names = {(e[1].get("company") or "").strip().lower() for e in entries}
+        if len(names) > 1:
+            truth = _employer_from_posting(keep_job.get("url", ""))
+            if truth and truth.lower() != (keep_job.get("company") or "").lower():
+                keep_job["company"] = truth
+                if apply:
+                    keep_path.write_text(
+                        json.dumps(keep_job, ensure_ascii=False, indent=2), encoding="utf-8"
+                    )
+
         for path, _, is_tailored in entries[1:]:
             if is_tailored:
                 continue                      # never delete a tailored packet
@@ -158,6 +173,29 @@ def _dedupe_by_url(folder: Path, tailored_root: Path, apply: bool) -> int:
                 path.unlink(missing_ok=True)
             removed += 1
     return removed
+
+
+def _employer_from_posting(url: str) -> str | None:
+    """The employer named by the posting page itself.
+
+    Only called when two records of the same posting disagree, which was 8 of
+    4,643 jobs — so the network cost is negligible. Fails soft: a blocked or slow
+    fetch just leaves the existing name alone.
+    """
+    if not url:
+        return None
+    try:
+        from curl_cffi import requests as cr
+
+        r = cr.get(url, impersonate="chrome", timeout=20)
+        if r.status_code != 200:
+            return None
+        m = re.search(
+            r'"hiringOrganization"\s*:\s*\{[^}]*?"name"\s*:\s*"([^"]+)"', r.text
+        )
+        return m.group(1).strip() if m else None
+    except Exception:
+        return None
 
 
 if __name__ == "__main__":
