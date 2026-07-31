@@ -15,6 +15,8 @@ const SOURCE_LABELS = {
   recruitee: "Recruitee", smartrecruiters: "SmartRecruiters", workday: "Workday",
   remote: "Remote", bigco: "Big employers", amazon: "Amazon", sap: "SAP",
   microsoft: "Microsoft",
+  // not a source — the description backfill phase that closes out every scan
+  enrich: "Fetching descriptions",
 };
 
 function daysAgo(iso) {

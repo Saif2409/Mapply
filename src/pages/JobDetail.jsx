@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { api, openExternal } from "../lib/api.js";
 import SiteBrowser from "../components/SiteBrowser.jsx";
 import { outreachTarget, parseOutreach } from "../lib/outreach.js";
@@ -35,31 +35,104 @@ const KIND_LABEL = {
   other: "File",
 };
 
+/* Holds the real page's shape — back link, header block, score card, description
+   — so nothing jumps when the job lands. The old placeholder was one line of
+   text in the corner, which read as a page that had failed to load. */
+function DetailSkeleton({ from, onBack }) {
+  return (
+    <div className="p-10 max-w-4xl mx-auto animate-pulse">
+      <button className="text-sm text-mist-dim hover:text-mist-bright mb-4" onClick={onBack}>
+        {from === "/tracker" ? "← Back to tracker" : "← Back to jobs"}
+      </button>
+      <div className="flex items-start justify-between gap-6">
+        <div className="min-w-0 flex-1">
+          <div className="h-6 w-2/3 rounded bg-ink-700/70" />
+          <div className="h-3.5 w-1/2 rounded bg-ink-700/40 mt-3" />
+          <div className="flex gap-2 mt-4">
+            <div className="h-6 w-20 rounded-full bg-ink-700/50" />
+            <div className="h-6 w-24 rounded-full bg-ink-700/40" />
+          </div>
+        </div>
+        <div className="h-16 w-16 rounded-2xl bg-ink-700/50 shrink-0" />
+      </div>
+
+      <div className="card mt-6 p-6 space-y-3">
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} className="flex items-center gap-3">
+            <div className="h-2.5 w-28 rounded bg-ink-700/40 shrink-0" />
+            <div className="h-2 flex-1 rounded-full bg-ink-700/60" />
+          </div>
+        ))}
+      </div>
+
+      <div className="card mt-6 p-6 space-y-2.5">
+        {[92, 78, 85, 60, 88, 45].map((w, i) => (
+          <div key={i} className="h-2.5 rounded bg-ink-700/40" style={{ width: `${w}%` }} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function JobDetail({ profile }) {
   const { jid } = useParams();
   const navigate = useNavigate();
+  /* A job reached from the Tracker has to go back to the Tracker. Hardcoding
+     /jobs dumped the user on a list they were not using, having lost their
+     place on the board. Deep links still fall back to the Jobs list. */
+  const from = useLocation().state?.from === "/tracker" ? "/tracker" : "/jobs";
   const [job, setJob] = useState(null);
+  const [loadError, setLoadError] = useState(null);
   const [manager, setManager] = useState(null);
   const [notes, setNotes] = useState("");
   const [files, setFiles] = useState([]);
   const [outreach, setOutreach] = useState(null);
+  // The posting opens inside Mapply, where the site is already signed in.
+  const [browsing, setBrowsing] = useState(false);
 
   useEffect(() => {
-    api.jobs(profile.id).then((all) => {
-      const j = all.find((x) => x.id === jid);
-      setJob(j || null);
-      setNotes(j?.notes || "");
-    });
+    setJob(null);
+    setLoadError(null);
+    api
+      .job(profile.id, jid)
+      .then((j) => {
+        setJob(j);
+        setNotes(j?.notes || "");
+      })
+      .catch((e) => setLoadError(e.message));
     api
       .jobFiles(profile.id, jid)
       .then((d) => setFiles(d.files || []))
       .catch(() => setFiles([]));
   }, [profile.id, jid]);
 
-  if (!job) return <div className="p-10 text-mist-dim">Loading job…</div>;
+  if (loadError)
+    return (
+      <div className="p-10 max-w-4xl mx-auto">
+        <button className="text-sm text-mist-dim hover:text-mist-bright mb-4" onClick={() => navigate(from)}>
+          {from === "/tracker" ? "← Back to tracker" : "← Back to jobs"}
+        </button>
+        <div className="card p-8 text-center">
+          <div className="text-bad font-medium">Couldn't open this job</div>
+          <div className="text-xs mt-1" style={{ color: "var(--text-dim)" }}>{loadError}</div>
+        </div>
+      </div>
+    );
+  if (!job) return <DetailSkeleton from={from} onBack={() => navigate(from)} />;
 
   const s = job.score;
   const tailored = ["tailored", "applied", "replied", "interview", "offer"].includes(job.status);
+
+  /* Something worth messaging: a named person, or a company inbox when the search only
+     turned up an address. A bare profile_url is a saved search, not a contact. */
+  const contact = job.hiring_manager || {};
+  const contactable = Boolean(contact.name || contact.email);
+
+  /* Only PDFs are shown. The .html source and the .md copy stay on disk — the
+     renderer needs the HTML to rebuild a packet and the outreach draft is read
+     from the .md below — but they are never what you attach to an application,
+     so listing them just makes the real documents harder to pick out. */
+  const docs = files.filter((f) => f.format === "PDF");
 
   const saveNotes = () => api.patchJob(profile.id, job.id, { notes }).catch(() => {});
   const setStatus = (status) =>
@@ -69,11 +142,10 @@ export default function JobDetail({ profile }) {
      LinkedIn only -> their profile, with the note ready to paste. Either way the
      drafted message sits in the side panel and the user sends it themselves. */
   const messageContact = async () => {
-    const contact = job.hiring_manager || {};
     let draft = {};
     try {
       const { files: fs } = await api.jobFiles(profile.id, job.id);
-      const f = (fs || []).find((x) => /outreach/i.test(x.name) && /md/i.test(x.format));
+      const f = (fs || []).find((x) => /outreach.*\.md$/i.test(x.name));
       if (f) draft = parseOutreach(await api.jobFileText(profile.id, job.id, f.name));
     } catch {}
     const target = outreachTarget(contact, draft);
@@ -93,8 +165,17 @@ export default function JobDetail({ profile }) {
           onClose={() => setOutreach(null)}
         />
       )}
-      <button className="text-sm text-mist-dim hover:text-mist-bright mb-4" onClick={() => navigate("/jobs")}>
-        ← Back to jobs
+      {browsing && !outreach && (
+        <SiteBrowser
+          url={job.url}
+          title={`${job.title} at ${job.company}`}
+          profile={profile}
+          job={job}
+          onClose={() => setBrowsing(false)}
+        />
+      )}
+      <button className="text-sm text-mist-dim hover:text-mist-bright mb-4" onClick={() => navigate(from)}>
+        {from === "/tracker" ? "← Back to tracker" : "← Back to jobs"}
       </button>
 
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
@@ -124,7 +205,7 @@ export default function JobDetail({ profile }) {
       </motion.div>
 
       <div className="flex gap-2 mt-6">
-        <button className="btn-primary" onClick={() => openExternal(job.url)}>
+        <button className="btn-primary" onClick={() => setBrowsing(true)}>
           Open posting ↗
         </button>
         {tailored ? (
@@ -145,21 +226,37 @@ export default function JobDetail({ profile }) {
             Tailor with Claude
           </button>
         )}
-        <button
-          className="btn-ghost"
-          onClick={() => api.hiringManager(profile.id, job.id).then(setManager).catch(() => {})}
-        >
-          Find hiring manager
-        </button>
+        {/* Once Claude has saved a reachable contact there is nothing left to find —
+            the same button becomes the way to message them. */}
+        {contactable ? (
+          <button
+            className="btn-ghost"
+            title={
+              contact.email
+                ? `Opens a pre-addressed Gmail draft to ${contact.email}`
+                : `Opens ${contact.name}'s LinkedIn with your drafted note alongside`
+            }
+            onClick={messageContact}
+          >
+            Message hiring manager
+          </button>
+        ) : (
+          <button
+            className="btn-ghost"
+            onClick={() => api.hiringManager(profile.id, job.id).then(setManager).catch(() => {})}
+          >
+            Find hiring manager
+          </button>
+        )}
       </div>
 
       {/* Tailored documents — named after the role and company so they're
           obvious in a file dialog; draggable straight into an application form. */}
-      {files.length > 0 && (
+      {docs.length > 0 && (
         <div className="card p-5 mt-5">
           <h3 className="font-semibold mb-3">Your application documents</h3>
           <div className="space-y-2">
-            {files.map((f) => (
+            {docs.map((f) => (
               <div
                 key={f.name}
                 className="flex items-center gap-3 bg-ink-900/60 border border-ink-700/50 rounded-xl px-4 py-3"
@@ -198,30 +295,32 @@ export default function JobDetail({ profile }) {
       )}
 
       {/* Saved hiring-manager contact from Claude's outreach pass */}
-      {job.hiring_manager?.name && (
+      {contactable && (
         <div className="card p-5 mt-5">
           <h3 className="font-semibold mb-2">Hiring contact</h3>
           <div className="text-sm">
-            <span className="font-medium">{job.hiring_manager.name}</span>
-            {job.hiring_manager.title ? ` — ${job.hiring_manager.title}` : ""}
+            <span className="font-medium">{contact.name || contact.email}</span>
+            {contact.title ? ` — ${contact.title}` : ""}
           </div>
+          {contact.name && contact.email && (
+            <div className="text-xs text-mist-dim mt-1">{contact.email}</div>
+          )}
           <div className="flex gap-2 mt-3">
             <button
               className="btn-primary !py-1.5 text-xs"
               title={
-                job.hiring_manager.email
+                contact.email
                   ? "Opens a pre-addressed Gmail draft with your message alongside"
                   : "Opens their LinkedIn profile with your drafted note alongside"
               }
               onClick={messageContact}
-              disabled={!job.hiring_manager.email && !job.hiring_manager.profile_url}
             >
               Message hiring manager
             </button>
-            {job.hiring_manager.profile_url && (
+            {contact.profile_url && (
               <button
                 className="btn-ghost !py-1.5 text-xs"
-                onClick={() => openExternal(job.hiring_manager.profile_url)}
+                onClick={() => openExternal(contact.profile_url)}
               >
                 Open externally ↗
               </button>

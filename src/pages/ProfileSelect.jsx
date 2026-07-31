@@ -105,7 +105,7 @@ export default function ProfileSelect({ onSelect, theme }) {
               <div className="text-center">
                 <div className="font-semibold text-lg">{p.name}</div>
                 <div className="text-xs text-mist-dim mt-1">
-                  {p.stats.jobs_found} found · {p.stats.tailored} tailored ·{" "}
+                  {p.stats.jobs_found} open · {p.stats.tailored} tailored ·{" "}
                   {p.stats.applied} applied
                 </div>
                 {!p.complete && (

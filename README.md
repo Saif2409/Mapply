@@ -11,21 +11,57 @@ the reasoning engine over a shared filesystem.
 
 ## What it does
 
-1. **Find Jobs** — scrapes nine sources concurrently and writes one JSON file per unique posting.
+1. **Find Jobs** — scrapes every source concurrently and writes one JSON file per unique posting.
 2. **Score** — judges each posting against a structured profile of the candidate.
 3. **Tailor** — builds an ATS-safe CV and cover letter for the top-ranked jobs.
-4. **Track** — tailored jobs leave the job pool and move through a kanban tracker.
+4. **Apply** — opens the posting inside the app, already signed in, with the documents and
+   answers beside it.
+5. **Track** — tailored jobs leave the job pool and move through a kanban tracker.
 
 ## Sources
 
 | Kind | Sources |
 |---|---|
-| Aggregators | Indeed, LinkedIn, Google Jobs |
+| Aggregators | Indeed, LinkedIn |
 | Gulf-native boards | Bayt, GulfTalent, NaukriGulf |
 | ATS platforms | Greenhouse, Lever, Ashby, Recruitee, SmartRecruiters, Workday, Oracle Recruiting Cloud |
 | Direct career APIs | Amazon, SAP, Microsoft, Emirates, flydubai, Etihad, and Oracle-hosted UAE employers |
 
-A single scan collects ~5,400 raw results and resolves them to ~3,780 unique postings.
+Sources are removed as readily as they're added. Google Jobs was dropped after repeatedly
+returning nothing Indeed and LinkedIn hadn't already surfaced, and Tanqeeb after most of
+its postings turned out to be re-listings of LinkedIn ads that had since closed — a board
+that mostly forwards you elsewhere is a board whose results you already have.
+
+A working store here holds ~4,600 unique postings.
+
+## Applying
+
+The last mile is where job hunting actually costs time, so it happens inside the app.
+
+- **Sign in once.** An embedded browser keeps a session per board, so postings open already
+  authenticated. Whether a site is genuinely signed in is decided by its real session
+  cookie rather than by the presence of any httpOnly cookie — CDN and bot-protection
+  cookies are httpOnly too, and reading those as "connected" reported sites as logged in
+  that had only ever been browsed.
+- **Handoffs stay inside.** Boards bounce constantly to an employer's ATS, and Apply
+  buttons open popups. Those are kept in the same embedded view, so the apply panel and the
+  session travel with them instead of being stranded in a detached window.
+- **Documents at hand.** The tailored CV and cover letter sit beside the form. Where a page
+  has a drop zone they can be dragged straight onto it; where it opens an OS file dialog
+  instead — which nothing can be dragged into — the containing folder is copied for pasting
+  into the dialog's filename box.
+- **Autofill** covers the facts a form asks for verbatim. Judgement answers — salary
+  expectations, "why this company", notice period — are deliberately left blank.
+- **Mapply never submits anything.** It fills and opens; the human reviews and clicks.
+
+## Expired postings
+
+A packet tailored for a posting that closed last week can never be sent. Before any
+tailoring runs, the shortlist is verified: a passed `validThrough` deadline, a 404, or a
+page that says "no longer accepting applications" removes the job. Anything else — a board
+that blocked the request, rate-limited, or timed out — is left alone, because a scraper
+being refused says nothing about whether an employer is still hiring. Removal is the same
+reversible state as the Remove button: the record stays on disk so scans don't re-add it.
 
 ---
 
@@ -80,7 +116,10 @@ Neither calls the other's API — the filesystem is the contract.
 78MB to a temp directory on every launch; switching packaging strategy took it to ~3s. The
 UI stays in step with files an external agent is changing by polling a directory
 fingerprint rather than the dataset — optimised from 1.4s to 29ms per check by replacing
-per-file `stat` calls with a single cached directory scan.
+per-file `stat` calls with a single cached directory scan. That same fingerprint keys the
+caches for the job list and the profile counters, so pages that need to read every record
+pay for it once per actual change. Opening a posting used to fetch the entire store to find
+one job; it now reads that one file.
 
 ---
 
@@ -97,7 +136,9 @@ Mapply/
     claude_scoring.py batch interface for agent-driven scoring
     jobs.py          file-backed job store, identity, repost detection
     dedupe.py        cross-folder duplicate resolution
+    liveness.py      is this posting still open?
     sources/         one module per source family
+    tools/           maintenance scripts (verify postings, retire a source, logos)
 ```
 
 Data lives outside the app source so the app and the agent share it:

@@ -136,6 +136,25 @@ function createWindow() {
   });
 }
 
+/* Job sites hand off constantly — a board bounces you to the employer's ATS,
+   an "Apply" opens the real form in a popup. Left alone those become a detached
+   window with no apply panel beside it, and the session/autofill context is
+   lost. Keep the navigation inside the same embedded view instead.
+
+   Scoped to webviews only: the main window's handler above is unchanged, so
+   links Mapply itself opens still go to the real browser. */
+app.on("web-contents-created", (_e, contents) => {
+  if (contents.getType() !== "webview") return;
+  contents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) {
+      contents.loadURL(url).catch(() => {});
+    } else if (/^mailto:/i.test(url)) {
+      shell.openExternal(url);
+    }
+    return { action: "deny" };
+  });
+});
+
 ipcMain.handle("open-external", (_e, url) => {
   if (typeof url === "string" && /^https?:\/\//i.test(url)) shell.openExternal(url);
 });
@@ -169,13 +188,30 @@ async function logCookieInventory(tag) {
   } catch {}
 }
 
+/** Cookies that are httpOnly but prove nothing — CDN, bot-protection and ad
+ *  infrastructure, set for anyone who loads the page. Without this list the
+ *  fallback below reported SmartRecruiters as connected off Cloudflare's
+ *  `cf_clearance` alone. Matched case-insensitively as a prefix. */
+const NON_SESSION_COOKIES = [
+  "cf_clearance", "__cflb", "__cf_bm", "aws-waf-token", "awsalb", "_px",
+  "_pxvid", "rt", "dfpfpt", "__uzm", "__ssuzjsr", "_gd_", "optanon",
+  "incap_ses", "visid_incap", "datadome", "ak_bmsc", "bm_sv", "_abck",
+];
+
+const isInfraCookie = (name = "") => {
+  const n = name.toLowerCase();
+  return NON_SESSION_COOKIES.some((p) => n === p || n.startsWith(p));
+};
+
 /** Is this site signed in?
  *
- *  Where the site's real session cookie is known (LinkedIn's `li_at`) that is
- *  the test, and it must not have expired. Otherwise fall back to "holds a
- *  durable httpOnly cookie" — a hint rather than proof, since ad and
- *  bot-protection cookies are httpOnly too and a site you merely browsed can
- *  read as connected.
+ *  Where the site's real session cookie is known that is the test, and it must
+ *  not have expired. Those names are observed from a real signed-in session
+ *  rather than guessed — see connectors.js.
+ *
+ *  Otherwise fall back to "holds a durable httpOnly cookie that isn't obvious
+ *  infrastructure". Still a hint rather than proof, which is why naming the
+ *  cookie is preferred for every site that matters.
  *
  *  Values are never read; only name, flags, expiry and domain. */
 ipcMain.handle("connector-status", async (_e, sites) => {
@@ -207,7 +243,9 @@ ipcMain.handle("connector-status", async (_e, sites) => {
       cookies: mine.length,
       connected: wanted
         ? mine.some((c) => wanted.includes(c.name) && live(c))
-        : mine.some((c) => c.httpOnly && c.expirationDate && live(c)),
+        : mine.some(
+            (c) => c.httpOnly && c.expirationDate && live(c) && !isInfraCookie(c.name)
+          ),
     };
   }
 

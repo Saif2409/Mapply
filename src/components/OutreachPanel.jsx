@@ -50,13 +50,17 @@ function Block({ label, text, hint }) {
 export default function OutreachPanel({ profile, job, contact, onClose }) {
   const [draft, setDraft] = useState(null);
   const [state, setState] = useState("loading");
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let alive = true;
+    setState("loading");
     (async () => {
       try {
         const { files } = await api.jobFiles(profile.id, job.id);
-        const f = (files || []).find((x) => /outreach/i.test(x.name) && /md/i.test(x.format));
+        /* Match on the filename, not `format` — the backend labels .md files
+           "Markdown", which does not contain the substring "md". */
+        const f = (files || []).find((x) => /outreach.*\.md$/i.test(x.name));
         if (!f) {
           if (alive) setState("none");
           return;
@@ -67,13 +71,16 @@ export default function OutreachPanel({ profile, job, contact, onClose }) {
           setState("ready");
         }
       } catch {
-        if (alive) setState("none");
+        /* The draft may well exist — we just couldn't reach the backend. Saying
+           "no draft written" here sends the user off to re-run a skill that already
+           ran, so a failed read is its own state. */
+        if (alive) setState("error");
       }
     })();
     return () => {
       alive = false;
     };
-  }, [profile.id, job.id]);
+  }, [profile.id, job.id, attempt]);
 
   return (
     <aside
@@ -113,6 +120,21 @@ export default function OutreachPanel({ profile, job, contact, onClose }) {
           No draft written for this job yet. Type{" "}
           <span style={{ color: "var(--accent)" }}>find hiring managers</span> in Claude and it
           will research the contact and write the message.
+        </div>
+      )}
+
+      {state === "error" && (
+        <div className="p-4 text-xs" style={{ color: "var(--text-mid)" }}>
+          <p className="mb-2">
+            Couldn't read your draft — the Mapply backend didn't respond. If a draft was
+            already written it is still on disk.
+          </p>
+          <button
+            className="btn-ghost !py-1 text-xs"
+            onClick={() => setAttempt((n) => n + 1)}
+          >
+            Try again
+          </button>
         </div>
       )}
 

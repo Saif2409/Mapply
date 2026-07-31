@@ -8,10 +8,16 @@
  *   homeUrl       where Open drops you once connected. Not optional: LinkedIn
  *                 renders its sign-in form at /login even for a signed-in user,
  *                 which made a working session look logged out.
- *   sessionCookie the cookie that actually proves a sign-in, where it's known.
- *                 Falls back to "any durable httpOnly cookie", which is a hint
- *                 rather than proof — ad and bot-protection cookies are httpOnly
- *                 too.
+ *   sessionCookie the cookie that actually proves a sign-in. Read off a real
+ *                 signed-in session in this app's own cookie store, so these are
+ *                 observed rather than guessed. The httpOnly fallback below is
+ *                 only used where no marker is known.
+ *
+ * Naming the real cookie matters in both directions. SAP sets NO httpOnly cookie
+ * at all — its SuccessFactors session is `TAsessionID`, so the fallback could
+ * never see it and a signed-in account read as logged out. SmartRecruiters is the
+ * mirror image: its only httpOnly cookie is Cloudflare's `cf_clearance`, so
+ * merely loading the page read as connected.
  *
  * No credentials are stored anywhere: you sign in inside the embedded browser
  * and the session lives in Chromium's own persistent partition.
@@ -22,7 +28,8 @@ export const CONNECTORS = [
     name: "NaukriGulf",
     domain: ".naukrigulf.com",
     loginUrl: "https://www.naukrigulf.com/login",
-    homeUrl: "https://www.naukrigulf.com/mynaukrigulf",
+    homeUrl: "https://www.naukrigulf.com/mnj/userProfile/myHome?conmnj=1&source=",
+    sessionCookie: ["isJsLoggedIn", "userId"],
     note: "Applies with the CV on your NaukriGulf profile",
   },
   {
@@ -40,6 +47,7 @@ export const CONNECTORS = [
     domain: ".bayt.com",
     loginUrl: "https://www.bayt.com/en/login/",
     homeUrl: "https://www.bayt.com/en/myworkspace-j/",
+    sessionCookie: ["MSESID0"],
     note: "Applies with the CV on your Bayt profile",
   },
   {
@@ -48,6 +56,7 @@ export const CONNECTORS = [
     domain: ".indeed.com",
     loginUrl: "https://secure.indeed.com/account/login",
     homeUrl: "https://myjobs.indeed.com/",
+    sessionCookie: ["PPID", "rememberMe"],
     note: "Screening questions get auto-filled where possible",
   },
   {
@@ -56,15 +65,8 @@ export const CONNECTORS = [
     domain: ".gulftalent.com",
     loginUrl: "https://www.gulftalent.com/account/login",
     homeUrl: "https://www.gulftalent.com/account",
+    sessionCookie: ["remember_me"],
     note: "Regional board",
-  },
-  {
-    id: "tanqeeb",
-    name: "Tanqeeb",
-    domain: ".tanqeeb.com",
-    loginUrl: "https://uae.tanqeeb.com/ar/login",
-    homeUrl: "https://uae.tanqeeb.com/",
-    note: "~26k UAE listings, many remote",
   },
   {
     id: "gmail",
@@ -72,6 +74,7 @@ export const CONNECTORS = [
     domain: ".google.com",
     loginUrl: "https://accounts.google.com/",
     homeUrl: "https://mail.google.com/",
+    sessionCookie: ["SID", "__Secure-1PSID"],
     note: "Opens a pre-addressed draft when you message a hiring manager",
   },
   {
@@ -88,6 +91,9 @@ export const CONNECTORS = [
     domain: ".sap.com",
     loginUrl: "https://jobs.sap.com/",
     homeUrl: "https://jobs.sap.com/",
+    // SAP sets no httpOnly cookie whatsoever; this is the SuccessFactors
+    // career-site session, and without naming it a live session read as "no".
+    sessionCookie: ["TAsessionID"],
     note: "SuccessFactors — full autofill",
   },
   {
@@ -96,6 +102,7 @@ export const CONNECTORS = [
     domain: ".amazon.jobs",
     loginUrl: "https://www.amazon.jobs/en/login",
     homeUrl: "https://www.amazon.jobs/en/applicant",
+    sessionCookie: ["amazon_jobs_session", "mons_auth"],
     note: "Own careers platform — full autofill",
   },
   {
@@ -104,6 +111,7 @@ export const CONNECTORS = [
     domain: ".oraclecloud.com",
     loginUrl: "https://ehjd.fa.em2.oraclecloud.com/",
     homeUrl: "https://ehjd.fa.em2.oraclecloud.com/",
+    sessionCookie: ["ORA_CX_USERID"],
     note: "Used by FAB, Emirates NBD, Emaar, DP World",
   },
   {

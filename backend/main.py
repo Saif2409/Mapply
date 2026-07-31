@@ -3,6 +3,7 @@
 Run:  .venv/Scripts/python.exe -m uvicorn main:app --port 8710
 """
 import json
+import shutil
 from datetime import date
 
 from fastapi import FastAPI, HTTPException, Response
@@ -10,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 import profiles as profiles_mod
-from paths import PROFILES_DIR, ensure_profile_dirs
+from paths import JOBS_FOUND, PROFILES_DIR, ensure_profile_dirs
 
 app = FastAPI(title="Mapply API", version="0.1.0")
 
@@ -140,6 +141,27 @@ def get_jobs_revision(name: str):
     return jobs_mod.revision(name)
 
 
+@app.get("/api/profiles/{name}/jobs/{jid}")
+def get_job(name: str, jid: str):
+    """One job, read straight off disk.
+
+    Declared after /jobs/revision so that literal path still wins. The detail
+    page used to pull the whole store (~11.5MB) and pick its job out of the
+    list, which is what made opening a posting feel slow.
+    """
+    f = jobs_mod.find_job_file(name, jid)
+    if not f:
+        raise HTTPException(404, f"Job {jid} not found")
+    try:
+        job = json.loads(f.read_text(encoding="utf-8"))
+    except Exception as e:
+        raise HTTPException(500, f"Job {jid} is unreadable: {e}")
+    # matches what load_jobs() injects, so callers see the same shape
+    if f.name == "job.json":
+        job["tailored_dir"] = f.parent.name
+    return job
+
+
 class JobPatch(BaseModel):
     status: str | None = None
     notes: str | None = None
@@ -246,6 +268,74 @@ def dismiss_jobs(name: str, body: DismissBody):
             "action": "restored" if body.restore else "dismissed"}
 
 
+@app.delete("/api/profiles/{name}/jobs/{jid}")
+def delete_job(name: str, jid: str):
+    """Delete a tracked job outright, tailored documents and all.
+
+    This is the one destructive path in the app, for the job that expired, was
+    filled, or turned out to be a bad fit — keeping its packet around just makes
+    the Tracker harder to read. `dismiss` deliberately refuses tailored jobs, so
+    without this there was no way to get rid of one.
+
+    Two guards, because this removes a directory tree:
+      * the folder must sit directly inside profiles/<name>/tailored/, resolved
+        and re-checked, so a crafted id cannot walk out of the profile;
+      * its name must start with "<jid>__", so only the requested job's folder
+        can match.
+    The job also gets a tombstone in jobs_found so the next scan recognises it
+    and doesn't cheerfully re-add what was just deleted.
+    """
+    # Read the job BEFORE anything is removed: for a tailored job the only copy
+    # of its metadata is job.json inside the folder about to be deleted.
+    existing = jobs_mod.find_job_file(name, jid)
+    job = None
+    if existing:
+        try:
+            job = json.loads(existing.read_text(encoding="utf-8"))
+        except Exception:
+            job = None
+    if job is None and existing is None:
+        raise HTTPException(404, f"Job {jid} not found")
+
+    root = (profile_dir(name) / TAILORED).resolve()
+    removed_files: list[str] = []
+    removed_folder = None
+
+    if root.exists():
+        for d in root.iterdir():
+            if not d.is_dir() or not d.name.startswith(f"{jid}__"):
+                continue
+            target = d.resolve()
+            if target.parent != root:          # refuses symlinks and traversal
+                raise HTTPException(400, "refusing to delete outside the profile")
+            removed_files = sorted(f.name for f in target.iterdir() if f.is_file())
+            shutil.rmtree(target)
+            removed_folder = str(target)
+            break
+
+    # Tombstone rather than a clean wipe: a deleted job that comes straight back
+    # on the next scan is worse than not being able to delete it at all.
+    tomb = profile_dir(name) / JOBS_FOUND / f"{jid}__deleted.json"
+    tomb.parent.mkdir(parents=True, exist_ok=True)
+    tomb.write_text(json.dumps({
+        "id": jid,
+        "title": (job or {}).get("title", ""),
+        "company": (job or {}).get("company", ""),
+        "url": (job or {}).get("url", ""),
+        "source": (job or {}).get("source", ""),
+        "status": jobs_mod.DISMISSED,
+        "deleted_date": date.today().isoformat(),
+        "notes": "Deleted from the Tracker along with its tailored documents.",
+    }, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    # drop the original open-pool record, now superseded by the tombstone.
+    # (a tailored job's record lived inside the folder and is already gone)
+    if existing and existing.exists() and existing != tomb:
+        existing.unlink(missing_ok=True)
+
+    return {"deleted": jid, "folder": removed_folder, "files": removed_files}
+
+
 @app.post("/api/profiles/{name}/scan")
 def post_scan(name: str):
     ensure_profile_dirs(name)
@@ -326,11 +416,16 @@ def list_job_files(name: str, jid: str):
     for f in sorted(folder.iterdir()):
         if f.name == "job.json" or f.is_dir():
             continue
+        low = f.name.lower()
         out.append({
             "name": f.name,
-            "kind": ("resume" if "resume" in f.name.lower()
-                     else "cover_letter" if "cover" in f.name.lower()
-                     else "outreach" if "outreach" in f.name.lower()
+            # Cover letter is checked before CV: "CoverLetter_CV_Data_Scientist"
+            # style names contain both, and the letter is the more specific match.
+            # "_cv_" matters because the tailored files are named CV, not resume.
+            "kind": ("cover_letter" if "cover" in low
+                     else "outreach" if "outreach" in low
+                     else "resume" if ("resume" in low or "_cv_" in low
+                                       or low.startswith("cv_") or "curriculum" in low)
                      else "other"),
             "format": label.get(f.suffix.lower(), f.suffix.lstrip(".").upper()),
             "size": f.stat().st_size,

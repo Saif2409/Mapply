@@ -68,6 +68,38 @@ def _consume(profile: str, source: str, jobs_iter, seen: set, seen_lock: threadi
     return found, new, dup
 
 
+# Sources whose search results carry a title and a link but little or no
+# description — the detail has to be fetched per posting (or, for NaukriGulf,
+# by replaying the search and matching on URL). Their fetchers live in
+# backfill.py; running them at the end of every scan is what makes a fresh scan
+# complete on its own. A job with no description cannot be scored honestly: the
+# deterministic side has nothing to measure and the judge nothing to read.
+ENRICH_SOURCES = ["gulftalent", "oracle", "sap", "etihad",
+                  "smartrecruiters", "naukrigulf"]
+
+
+def _enrich(profile: str) -> None:
+    """Fill in missing descriptions in place, one source at a time.
+
+    Only touches jobs that are actually missing text, so the cost is
+    proportional to what the scan just added rather than to the whole store.
+    Never allowed to fail the scan — a source that errors here leaves its jobs
+    thin, which is the old behaviour, not a broken run.
+    """
+    from backfill import backfill
+
+    updated = 0
+    _mark(profile, "enrich", status="running")
+    for src in ENRICH_SOURCES:
+        try:
+            res = backfill(profile, src)
+            updated += int(res.get("updated") or 0)
+            _mark(profile, "enrich", found=updated, new=updated)
+        except Exception:
+            traceback.print_exc()
+    _mark(profile, "enrich", status="done", found=updated, new=updated)
+
+
 def _run_scan(profile: str, search_terms: list[str]):
     from sources import ats, bigco, gulf, jobspy_source
 
@@ -99,13 +131,18 @@ def _run_scan(profile: str, search_terms: list[str]):
         # JobSpy sites. Glassdoor has no UAE coverage; Google Jobs was dropped
         # after repeatedly returning 0 new — everything it surfaced was already
         # coming from Indeed or LinkedIn.
-        # LinkedIn fetches each job description in a separate request and rate-limits
-        # hard, so it gets the highest-signal terms only; the other boards take all.
-        SITE_TERM_LIMIT = {"linkedin": 8}
+        #
+        # LinkedIn used to be capped at the 8 highest-signal terms because it
+        # fetches each description in its own request and rate-limits hard. That
+        # cap is gone with Tanqeeb: Tanqeeb was mostly re-listing LinkedIn
+        # postings, so the terms it covered have to be searched on LinkedIn
+        # itself or they are lost. Terms run primary-first, so if LinkedIn does
+        # start throttling late in the list the roles that matter most are
+        # already in.
         for site in ["indeed", "linkedin"]:
             def make(site=site):
                 def run():
-                    for term in search_terms[: SITE_TERM_LIMIT.get(site, len(search_terms))]:
+                    for term in search_terms:
                         yield from jobspy_source.scrape_site(site, term)
                 return run()
             tasks[pool.submit(_consume, profile, site, make(), seen, seen_lock, index)] = site
@@ -135,7 +172,7 @@ def _run_scan(profile: str, search_terms: list[str]):
 
         # Gulf-native boards — search every role term
         for name, fn in (("bayt", gulf.bayt), ("gulftalent", gulf.gulftalent),
-                         ("naukrigulf", gulf.naukrigulf), ("tanqeeb", gulf.tanqeeb)):
+                         ("naukrigulf", gulf.naukrigulf)):
             def make_gulf(fn=fn):
                 def run():
                     for term in search_terms:
@@ -150,6 +187,14 @@ def _run_scan(profile: str, search_terms: list[str]):
                 t["found"] += f
                 t["new"] += n
                 t["duplicates"] += d
+
+    # Descriptions last: everything is on disk by now, so this only has to look
+    # at what is genuinely thin.
+    try:
+        _enrich(profile)
+    except Exception:
+        traceback.print_exc()
+        _mark(profile, "enrich", status="error")
 
     with _lock:
         _scans[profile]["running"] = False
@@ -169,8 +214,11 @@ def start_scan(profile: str) -> dict:
         state = _blank_state()
         state["running"] = True
         state["started"] = datetime.now().isoformat(timespec="seconds")
+        # "enrich" is the description backfill that runs after every source
+        # finishes; it is listed here so the scan page shows it as a real phase
+        # rather than appearing to stall at the end.
         sources = ["indeed", "linkedin", "remote", "watchlist", "bigco",
-                   "bayt", "gulftalent", "naukrigulf", "tanqeeb"]
+                   "bayt", "gulftalent", "naukrigulf", "enrich"]
         state["sources"] = {s: {"status": "pending", "found": 0, "new": 0, "duplicates": 0, "error": None} for s in sources}
         _scans[profile] = state
 

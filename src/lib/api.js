@@ -51,6 +51,9 @@ export const api = {
     request(`/api/profiles/${encodeURIComponent(name)}/jobs${summary ? "?summary=1" : ""}`),
   jobsRevision: (name) =>
     request(`/api/profiles/${encodeURIComponent(name)}/jobs/revision`),
+  // One job — the detail page's whole payload, instead of the full list.
+  job: (name, jid) =>
+    request(`/api/profiles/${encodeURIComponent(name)}/jobs/${jid}`),
   dismissJobs: (name, ids, restore = false) =>
     request(`/api/profiles/${encodeURIComponent(name)}/jobs/dismiss`, {
       method: "POST",
@@ -60,6 +63,12 @@ export const api = {
     request(`/api/profiles/${encodeURIComponent(name)}/jobs/${jid}`, {
       method: "PATCH",
       body: JSON.stringify(patch),
+    }),
+  /* Destructive: removes the tailored folder and its PDFs from disk. Only ever
+     call this behind an explicit confirmation. */
+  deleteJob: (name, jid) =>
+    request(`/api/profiles/${encodeURIComponent(name)}/jobs/${jid}`, {
+      method: "DELETE",
     }),
   startScan: (name) =>
     request(`/api/profiles/${encodeURIComponent(name)}/scan`, { method: "POST" }),

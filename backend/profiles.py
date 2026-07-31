@@ -79,8 +79,40 @@ def safe_name(name: str) -> str:
     return cleaned[:40]
 
 
+OPEN_STATUSES = ("found", "scored")
+
+# profile_stats has to read every job file to know which are still open, and the
+# profile picker asks for it on every load. Cached against the same cheap
+# directory fingerprint the UI polls, so the cost is paid once per change.
+_stats_cache: dict[str, tuple] = {}
+
+
+def _open_jobs(folder: Path) -> int:
+    """Jobs still in the pool — dismissed ones and delete tombstones stay on disk
+    so scans don't re-add them, but counting them made the dashboard disagree
+    with the Jobs page."""
+    import json
+
+    open_count = 0
+    for f in folder.glob("*.json"):
+        try:
+            if json.loads(f.read_text(encoding="utf-8")).get("status") in OPEN_STATUSES:
+                open_count += 1
+        except Exception:
+            continue
+    return open_count
+
+
 def profile_stats(p: Path) -> dict:
-    jobs_found = len(list((p / JOBS_FOUND).glob("*.json"))) if (p / JOBS_FOUND).exists() else 0
+    import jobs as jobs_mod
+
+    rev = jobs_mod.revision(p.name)
+    key = (rev["count"], rev["mtime"])
+    hit = _stats_cache.get(p.name)
+    if hit and hit[0] == key:
+        return hit[1]
+
+    jobs_found = _open_jobs(p / JOBS_FOUND) if (p / JOBS_FOUND).exists() else 0
     tailored_dir = p / TAILORED
     tailored = len([d for d in tailored_dir.iterdir() if d.is_dir()]) if tailored_dir.exists() else 0
     applied = 0
@@ -95,7 +127,9 @@ def profile_stats(p: Path) -> dict:
                         applied += 1
                 except Exception:
                     pass
-    return {"jobs_found": jobs_found, "tailored": tailored, "applied": applied}
+    stats = {"jobs_found": jobs_found, "tailored": tailored, "applied": applied}
+    _stats_cache[p.name] = (key, stats)
+    return stats
 
 
 def list_profiles() -> list[dict]:

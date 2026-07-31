@@ -28,7 +28,6 @@ SITES = {
     "indeed": "https://www.indeed.com/",
     "gulftalent": "https://www.gulftalent.com/",
     "gmail": "https://mail.google.com/",
-    "tanqeeb": "https://uae.tanqeeb.com/",
     "emirates": "https://www.emiratesgroupcareers.com/",
     "sap": "https://jobs.sap.com/",
     "amazon": "https://www.amazon.jobs/",

@@ -2,10 +2,10 @@
 
 A full scan takes ~30 minutes because LinkedIn rate-limits every description
 fetch. This touches only the jobs that are actually missing data, so fixing
-Tanqeeb costs a couple of minutes instead of rescanning nine sources.
+GulfTalent costs a couple of minutes instead of rescanning every source.
 
-    .venv\\Scripts\\python.exe backfill.py --profile Saif --source tanqeeb
-    .venv\\Scripts\\python.exe backfill.py --profile Saif --source tanqeeb --dry-run
+    .venv\\Scripts\\python.exe backfill.py --profile Saif --source gulftalent
+    .venv\\Scripts\\python.exe backfill.py --profile Saif --source gulftalent --dry-run
 
 Why it matters: a job with no description can't be scored honestly. The
 deterministic side has nothing to measure and the judge has nothing to read, so
@@ -42,7 +42,6 @@ def _from_index(profile: str, source: str, targets) -> list:
 def _load_fetchers():
     from sources import bigco, gulf
 
-    FETCHERS["tanqeeb"] = gulf.tanqeeb_detail
     FETCHERS["gulftalent"] = gulf._gulftalent_detail
     FETCHERS["oracle"] = bigco.oracle_detail
     FETCHERS["sap"] = bigco.sap_detail
